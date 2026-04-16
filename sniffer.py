@@ -2,31 +2,58 @@ import argparse
 from scapy.all import *
 import datetime
 
-# Função para processar cada pacote
+# Função para processar cada pacote (A Unidade de Análise)
 def process_packet(pkt, args):
-    # Filtro manual de protocolo (se o utilizador definiu um)
+    # 1. Filtro manual de protocolo
     if args.protocol:
-        if args.protocol.lower() == "icmp" and ICMP not in pkt: return
-        if args.protocol.lower() == "tcp" and TCP not in pkt: return
-        if args.protocol.lower() == "udp" and UDP not in pkt: return
-        if args.protocol.lower() == "arp" and ARP not in pkt: return
+        p_lower = args.protocol.lower()
+        if p_lower == "icmp" and ICMP not in pkt: return
+        if p_lower == "tcp" and TCP not in pkt: return
+        if p_lower == "udp" and UDP not in pkt: return
+        if p_lower == "arp" and ARP not in pkt: return
 
     time_now = datetime.datetime.now().strftime("%H:%M:%S")
     proto = "UNKNOWN"
-    
-    if ARP in pkt: proto = "ARP"
-    elif ICMP in pkt: proto = "ICMP"
-    elif TCP in pkt: proto = "TCP"
-    elif UDP in pkt: proto = "UDP"
+    info = ""
+
+    # 2. Parsing de Protocolos (Extração de metadados)
+    if ARP in pkt:
+        proto = "ARP"
+        op = "Request" if pkt[ARP].op == 1 else "Reply"
+        info = f"{op}: {pkt[ARP].psrc} -> {pkt[ARP].pdst}"
+        
+    elif IP in pkt:
+        src_ip = pkt[IP].src
+        dst_ip = pkt[IP].dst
+        ttl = pkt[IP].ttl 
+        
+        if ICMP in pkt:
+            proto = "ICMP"
+            icmp_type = pkt[ICMP].type
+            type_desc = "Echo Request" if icmp_type == 8 else "Echo Reply" if icmp_type == 0 else f"Type {icmp_type}"
+            info = f"{type_desc} (TTL:{ttl})"
+            
+        elif TCP in pkt:
+            proto = "TCP"
+            # Extração de Portas e Flags (S=SYN, A=ACK, etc.)
+            flags = pkt[TCP].flags
+            info = f"{src_ip}:{pkt[TCP].sport} -> {dst_ip}:{pkt[TCP].dport} [Flags: {flags}, TTL:{ttl}]"
+            
+        elif UDP in pkt:
+            proto = "UDP"
+            info = f"{src_ip}:{pkt[UDP].sport} -> {dst_ip}:{pkt[UDP].dport} [TTL:{ttl}]"
+
+    # 3. Formatação do Output
+    summary_line = f"[{time_now}] {proto} | {len(pkt)} bytes | {info if info else pkt.summary()}"
 
     # Modo LIVE (Consola)
     if args.live:
-        print(f"[{time_now}] {proto} | {len(pkt)} bytes | {pkt.summary()}")
+        print(summary_line)
 
     # Modo LOG (Ficheiro)
     if args.log:
         with open(args.log, "a") as f:
-            f.write(f"{time_now}, {proto}, {len(pkt)}, {pkt.summary()}\n")
+            f.write(summary_line + "\n")
 
 def main():
     parser = argparse.ArgumentParser(description="O meu Packet Sniffer RC")
@@ -37,14 +64,17 @@ def main():
     
     args = parser.parse_args()
 
-    # Corrigido aqui: o print tem de estar "dentro" do if (com espaços)
+    # Aviso de modo silencioso
     if not args.live and not args.log:
-        print("Aviso: Não selecionaste o modo --live nem --log. O sniffer está a trabalhar em silêncio!")
+        print("\n[!] AVISO: O sniffer está a trabalhar em silêncio (sem --live ou --log).\n")
     
     print(f"A iniciar captura na interface: {args.interface if args.interface else 'Todas'}")
     
-    # Inicia o sniffer
-    sniff(iface=args.interface, prn=lambda p: process_packet(p, args), store=0)
+    # Inicia o sniffer (O Motor de Captura)
+    try:
+        sniff(iface=args.interface, prn=lambda p: process_packet(p, args), store=0)
+    except KeyboardInterrupt:
+        print("\n[!] Captura terminada pelo utilizador.")
 
 if __name__ == "__main__":
     main()
