@@ -1,6 +1,8 @@
 import argparse
 from scapy.all import *
 import datetime
+import os
+import signal
 
 #OPCIONAL 1: estatísticas finais ツ
 #contadores globais inicializados a zero
@@ -12,44 +14,151 @@ stats = {
     "UNKNOWN": {"pacotes": 0, "bytes": 0},
 }
 start_time = None  #preenchido quando a captura arranca
-#---------------------------------------------------------------
 
 def print_stats():
+    #cores ANSI para dar vida ao terminal
+    RESET  = "\033[0m"
+    BOLD   = "\033[1m"
+    CYAN   = "\033[96m"
+    GREEN  = "\033[92m"
+    YELLOW = "\033[93m"
+    BLUE   = "\033[94m"
+    DIM    = "\033[2m"
+    WHITE  = "\033[97m"
+
+    #cor associada a cada protocolo
+    proto_cores = {
+        "TCP":     BLUE,
+        "UDP":     CYAN,
+        "ICMP":    GREEN,
+        "ARP":     YELLOW,
+        "UNKNOWN": DIM,
+    }
+
     #calcula totais gerais
     total_pkts  = sum(v["pacotes"] for v in stats.values())
     total_bytes = sum(v["bytes"]   for v in stats.values())
+    duracao     = datetime.datetime.now() - start_time
+    segundos    = duracao.total_seconds()
 
-    #duração total da sessão de captura
-    duracao  = datetime.datetime.now() - start_time
-    segundos = duracao.total_seconds()
-
-    print("\n" + "═" * 60)
-    print(" 【 ESTATÍSTICAS DA CAPTURA 】")
-    print("═" * 60)
-    print(f"  ⏱︎  Duração       : {str(duracao).split('.')[0]}")
-    print(f" ")
-    print(f"  ❱  Total pacotes : {total_pkts}")
-    print(f"  ❱  Total bytes   : {total_bytes} B  ({total_bytes/1024:.2f} KB)")
+    #header
+    print(f"\n{CYAN}{'═' * 62}{RESET}")
+    print(f"{BOLD}{CYAN}  >>>  PACKET SNIFFER  ·  RELATORIO DE CAPTURA{RESET}")
+    print(f"{CYAN}{'═' * 62}{RESET}")
+    print(f"  {DIM}duração   {RESET}{WHITE}{str(duracao).split('.')[0]}{RESET}")
+    print(f"  {DIM}pacotes   {RESET}{WHITE}{total_pkts}{RESET}")
+    print(f"  {DIM}bytes     {RESET}{WHITE}{total_bytes} B  ({total_bytes/1024:.2f} KB){RESET}")
     if segundos > 0:
-        print(f"  ❱  Débito médio  : {total_bytes/segundos:.1f} B/s")
-    print("─" * 60)
-    print(f"  {'Protocolo':<10} {'Pacotes':>8} {'%Pkts':>7} {'Bytes':>10} {'%Bytes':>8}")
-    print("─" * 60)
+        print(f"  {DIM}débito    {RESET}{WHITE}{total_bytes/segundos:.1f} B/s{RESET}")
+    print(f"{CYAN}{'─' * 62}{RESET}")
 
-    #ordena por pacotes - protocolo mais visto aparece primeiro
+    #cabeçalho da tabela
+    print(f"  {BOLD}{'PROTO':<10} {'PKTS':>6}  {'%':>5}   {'BYTES':>10}  {'%':>5}   DISTRIBUIÇÃO{RESET}")
+    print(f"{DIM}{'─' * 62}{RESET}")
+
+    #linha por protocolo
     for proto, dados in sorted(stats.items(), key=lambda x: x[1]["pacotes"], reverse=True):
         if dados["pacotes"] == 0:
             continue
+
+        cor       = proto_cores.get(proto, WHITE)
         pct_pkts  = (dados["pacotes"] / total_pkts  * 100) if total_pkts  > 0 else 0
         pct_bytes = (dados["bytes"]   / total_bytes * 100) if total_bytes > 0 else 0
 
-        #barra visual proporcional ao tráfego (máx 20 chars)
-        barra = "█" * int(pct_pkts / 5) + "░" * (20 - int(pct_pkts / 5))
+        #barra proporcional colorida (max 20 chars)
+        filled = int(pct_pkts / 5)
+        barra  = f"{cor}{'█' * filled}{DIM}{'░' * (20 - filled)}{RESET}"
 
-        print(f"  {proto:<10} {dados['pacotes']:>8} {pct_pkts:>6.1f}% {dados['bytes']:>10} {pct_bytes:>7.1f}%")
-        print(f"  {'':10} {barra}")
+        print(f"  {cor}{BOLD}{proto:<10}{RESET} {WHITE}{dados['pacotes']:>6}{RESET}  {cor}{pct_pkts:>4.1f}%{RESET}   {WHITE}{dados['bytes']:>10}{RESET}  {cor}{pct_bytes:>4.1f}%{RESET}   {barra}")
 
-    print("═" * 60 + "\n")
+    print(f"{CYAN}{'═' * 62}{RESET}\n")
+
+def plot_stats():
+    #OPC3: gráfico opcional (só corre se matplotlib estiver instalado o que é chato)
+    #para instalar: pip install matplotlib --break-system-packages
+    try:
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as patches
+    except ImportError:
+        print("  [!] matplotlib nao instalado - grafico ignorado.")
+        print("  [!] para ativar: pip install matplotlib --break-system-packages\n")
+        return
+
+    total_pkts  = sum(v["pacotes"] for v in stats.values())
+    total_bytes = sum(v["bytes"]   for v in stats.values())
+    if total_pkts == 0:
+        return
+
+    dados_filtrados = {k: v for k, v in stats.items() if v["pacotes"] > 0}
+    protocolos = list(dados_filtrados.keys())
+    pacotes    = [v["pacotes"] for v in dados_filtrados.values()]
+    bytes_val  = [v["bytes"]   for v in dados_filtrados.values()]
+    pct_pkts   = [p / total_pkts  * 100 for p in pacotes]
+    pct_bytes  = [b / total_bytes * 100 for b in bytes_val]
+
+    cores_map  = {"TCP": "#4C9BE8", "UDP": "#50E3C2", "ICMP": "#7ED321",
+                  "ARP": "#F5A623", "UNKNOWN": "#9B9B9B"}
+    bar_cores  = [cores_map.get(p, "#AAAAAA") for p in protocolos]
+
+    duracao  = datetime.datetime.now() - start_time
+    segundos = duracao.total_seconds()
+    debito   = f"{total_bytes/segundos:.0f} B/s" if segundos > 0 else "N/A"
+
+    plt.style.use("dark_background")
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    fig.patch.set_facecolor("#0D1117")
+    fig.suptitle("Packet Sniffer  ·  Relatório de Captura",
+                 color="white", fontsize=13, fontweight="bold")
+
+    #barras verticais: pacotes por protocolo
+    bars = ax1.bar(protocolos, pacotes, color=bar_cores, width=0.5, zorder=3)
+    ax1.set_facecolor("#161B22")
+    ax1.set_title("Pacotes por Protocolo", color="white", pad=10)
+    ax1.set_ylabel("Nº de Pacotes", color="#8B949E")
+    ax1.tick_params(colors="white")
+    ax1.grid(axis="y", color="#30363D", zorder=0)
+    for spine in ax1.spines.values():
+        spine.set_edgecolor("#30363D")
+    for bar, pct in zip(bars, pct_pkts):
+        ax1.text(bar.get_x() + bar.get_width() / 2,
+                 bar.get_height() + max(pacotes) * 0.02,
+                 f"{pct:.1f}%", ha="center", va="bottom",
+                 color="white", fontsize=9, fontweight="bold")
+
+    #barras horizontais: bytes por protocolo
+    y_pos = range(len(protocolos))
+    hbars = ax2.barh(list(y_pos), pct_bytes, color=bar_cores, height=0.5, zorder=3)
+    ax2.set_facecolor("#161B22")
+    ax2.set_title("Distribuição de Bytes (%)", color="white", pad=10)
+    ax2.set_yticks(list(y_pos))
+    ax2.set_yticklabels(protocolos, color="white")
+    ax2.tick_params(colors="white")
+    ax2.grid(axis="x", color="#30363D", zorder=0)
+    for spine in ax2.spines.values():
+        spine.set_edgecolor("#30363D")
+    for bar, bval in zip(hbars, bytes_val):
+        ax2.text(bar.get_width() + 1,
+                 bar.get_y() + bar.get_height() / 2,
+                 f"{bval} B", va="center", color="white", fontsize=8)
+    ax2.set_xlim(0, 115)
+
+    fig.text(0.5, -0.02,
+             f"Duração: {str(duracao).split('.')[0]}   |   "
+             f"Total: {total_pkts} pkts  /  {total_bytes/1024:.1f} KB   |   "
+             f"Débito: {debito}",
+             ha="center", color="#8B949E", fontsize=8)
+
+    plt.tight_layout()
+    plt.savefig("captura_stats.png", dpi=150, bbox_inches="tight",
+                facecolor="#0D1117")
+    print(f"  [->] grafico guardado em captura_stats.png")
+
+    #tenta abrir o ficheiro automaticamente
+    import subprocess
+    try:
+        subprocess.Popen(["xdg-open", "captura_stats.png"])
+    except Exception:
+        pass
 
 
 def process_packet(pkt, args):
@@ -58,9 +167,9 @@ def process_packet(pkt, args):
     if args.protocol:
         p_lower = args.protocol.lower()
         if p_lower == "icmp" and ICMP not in pkt: return
-        if p_lower == "tcp" and TCP not in pkt: return
-        if p_lower == "udp" and UDP not in pkt: return
-        if p_lower == "arp" and ARP not in pkt: return
+        if p_lower == "tcp"  and TCP  not in pkt: return
+        if p_lower == "udp"  and UDP  not in pkt: return
+        if p_lower == "arp"  and ARP  not in pkt: return
 
     # Filtro de IP
     if args.ip:
@@ -74,26 +183,26 @@ def process_packet(pkt, args):
 
     time_now = datetime.datetime.now().strftime("%H:%M:%S")
     proto = "UNKNOWN"
-    info = ""
+    info  = ""
 
     # 2. PARSING
     if ARP in pkt:
         proto = "ARP"
-        op = "Request" if pkt[ARP].op == 1 else "Reply"
-        info = f"{op}: {pkt[ARP].psrc} -> {pkt[ARP].pdst}"
+        op    = "Request" if pkt[ARP].op == 1 else "Reply"
+        info  = f"{op}: {pkt[ARP].psrc} -> {pkt[ARP].pdst}"
     elif IP in pkt:
         src_ip = pkt[IP].src
         dst_ip = pkt[IP].dst
-        ttl = pkt[IP].ttl
+        ttl    = pkt[IP].ttl
         if ICMP in pkt:
             proto = "ICMP"
-            info = f"Type {pkt[ICMP].type} (TTL:{ttl})"
+            info  = f"Type {pkt[ICMP].type} (TTL:{ttl})"
         elif TCP in pkt:
             proto = "TCP"
-            info = f"{src_ip}:{pkt[TCP].sport} -> {dst_ip}:{pkt[TCP].dport} [Flags: {pkt[TCP].flags}, TTL:{ttl}]"
+            info  = f"{src_ip}:{pkt[TCP].sport} -> {dst_ip}:{pkt[TCP].dport} [Flags: {pkt[TCP].flags}, TTL:{ttl}]"
         elif UDP in pkt:
             proto = "UDP"
-            info = f"{src_ip}:{pkt[UDP].sport} -> {dst_ip}:{pkt[UDP].dport} [TTL:{ttl}]"
+            info  = f"{src_ip}:{pkt[UDP].sport} -> {dst_ip}:{pkt[UDP].dport} [TTL:{ttl}]"
 
     summary_line = f"[{time_now}] {proto} | {len(pkt)} bytes | {info if info else pkt.summary()}"
 
@@ -102,15 +211,13 @@ def process_packet(pkt, args):
         with open(args.log, "a") as f:
             f.write(summary_line + "\n")
 
-    #----------------------------------------------------------------
-    #OPC1: atualiza contadores após processar o pacote 
+    #OPC1: atualiza contadores após processar o pacote
     if proto in stats:
         stats[proto]["pacotes"] += 1
         stats[proto]["bytes"]   += len(pkt)
     else:
         stats["UNKNOWN"]["pacotes"] += 1
         stats["UNKNOWN"]["bytes"]   += len(pkt)
-    #---------------------------------------------------------------
 
 
 def main():
@@ -120,21 +227,19 @@ def main():
 
     parser = argparse.ArgumentParser(description="O meu Packet Sniffer RC")
     parser.add_argument("-i", "--interface", help="Seleciona a interface de rede a capturar")
-    parser.add_argument("-p", "--protocol", help="Filtra por protocolo (arp, icmp, tcp, udp)")
-    parser.add_argument("--ip", help="Filtra por endereço IP de origem ou destino")
-    parser.add_argument("--mac", help="Filtra por endereço MAC")
-    parser.add_argument("-l", "--log", help="Ativa modo log e define ficheiro de saída")
-    parser.add_argument("--live", action="store_true", help="Ativa impressão em tempo real na consola")
+    parser.add_argument("-p", "--protocol",  help="Filtra por protocolo (arp, icmp, tcp, udp)")
+    parser.add_argument("--ip",              help="Filtra por endereço IP de origem ou destino")
+    parser.add_argument("--mac",             help="Filtra por endereço MAC")
+    parser.add_argument("-l", "--log",       help="Ativa modo log e define ficheiro de saída")
+    parser.add_argument("--live",            action="store_true", help="Ativa impressão em tempo real na consola")
+    parser.add_argument("--graph",           action="store_true", help="Gera grafico no final (requer matplotlib)")
 
     args = parser.parse_args()
 
     if not args.live and not args.log:
         print("\n[!] AVISO: Define --live ou --log para ver resultados.\n")
 
-    print(f"A iniciar captura...")
-
-    #OPC1: o scapy por vezes intercepta o ctrl+c antes do python, por isso  vamos tentar usar stop_filter para parar a captura de forma limpa (a verificar!)
-    import signal
+    print("A iniciar captura...")
 
     stop = {"flag": False}
 
@@ -148,6 +253,10 @@ def main():
 
     print("\n[!] Captura terminada.")
     print_stats()
+
+    #OPC3: grafico só se o utilizador pedir explicitamente com --graph
+    if args.graph:
+        plot_stats()
 
 if __name__ == "__main__":
     main()
