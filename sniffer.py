@@ -15,6 +15,11 @@ stats = {
 }
 start_time = None  #preenchido quando a captura arranca
 
+#OPCIONAL 2: calculo de RTT via ICMP
+#guarda o timestamp dos echo requests pendentes {ip_src: timestamp}
+icmp_pending = {}
+rtt_samples  = []  #lista de RTTs calculados em ms
+
 def print_stats():
     #cores ANSI para dar vida ao terminal
     RESET  = "\033[0m"
@@ -71,10 +76,20 @@ def print_stats():
 
         print(f"  {cor}{BOLD}{proto:<10}{RESET} {WHITE}{dados['pacotes']:>6}{RESET}  {cor}{pct_pkts:>4.1f}%{RESET}   {WHITE}{dados['bytes']:>10}{RESET}  {cor}{pct_bytes:>4.1f}%{RESET}   {barra}")
 
+    #OPC2: bloco de RTT no final do relatório
+    if rtt_samples:
+        print(f"{CYAN}{'─' * 62}{RESET}")
+        print(f"  {BOLD}RTT MÉDIO (ICMP){RESET}")
+        print(f"  {DIM}amostras  {RESET}{WHITE}{len(rtt_samples)}{RESET}")
+        print(f"  {DIM}mínimo    {RESET}{YELLOW}{min(rtt_samples):.2f} ms{RESET}")
+        print(f"  {DIM}máximo    {RESET}{YELLOW}{max(rtt_samples):.2f} ms{RESET}")
+        print(f"  {DIM}média     {RESET}{YELLOW}{sum(rtt_samples)/len(rtt_samples):.2f} ms{RESET}")
+
     print(f"{CYAN}{'═' * 62}{RESET}\n")
 
+
 def plot_stats():
-    #OPC3: gráfico opcional (só corre se matplotlib estiver instalado o que é chato)
+    #OPC3: gráfico opcional (só corre se matplotlib estiver instalado)
     #para instalar: pip install matplotlib --break-system-packages
     try:
         import matplotlib.pyplot as plt
@@ -197,6 +212,18 @@ def process_packet(pkt, args):
         if ICMP in pkt:
             proto = "ICMP"
             info  = f"Type {pkt[ICMP].type} (TTL:{ttl})"
+
+            #OPC2: calculo de RTT
+            #echo request: guarda o timestamp indexado pelo ip de origem
+            if pkt[ICMP].type == 8:
+                icmp_pending[src_ip] = pkt.time
+            #echo reply: emparelha com o request e calcula o RTT
+            elif pkt[ICMP].type == 0:
+                if dst_ip in icmp_pending:
+                    rtt_ms = (pkt.time - icmp_pending.pop(dst_ip)) * 1000
+                    rtt_samples.append(rtt_ms)
+                    info = f"Type 0 | RTT: {rtt_ms:.2f} ms (TTL:{ttl})"
+
         elif TCP in pkt:
             proto = "TCP"
             info  = f"{src_ip}:{pkt[TCP].sport} -> {dst_ip}:{pkt[TCP].dport} [Flags: {pkt[TCP].flags}, TTL:{ttl}]"
