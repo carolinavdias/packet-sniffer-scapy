@@ -231,8 +231,8 @@ def process_packet(pkt, args):
             proto = "UDP"
             info  = f"{src_ip}:{pkt[UDP].sport} -> {dst_ip}:{pkt[UDP].dport} [TTL:{ttl}]"
 
-    summary_line = f"[{time_now}] {proto} | {len(pkt)} bytes | {info if info else pkt.summary()}"
-
+    mac_info = f"{pkt.src} -> {pkt.dst}"
+    summary_line = f"[{time_now}] [{args.interface or 'any'}] {proto} | {len(pkt)} bytes | {mac_info} | {info if info else pkt.summary()}"
     if args.live: print(summary_line)
     if args.log:
         with open(args.log, "a") as f:
