@@ -45,7 +45,7 @@ def resolver_hostname(ip):
     return dns_cache[ip]
 
 def verificar_anomalias(pkt, src_ip, proto, args):
-    #OPC5: deteta port scan — um IP a tentar muitas portas diferentes em pouco tempo
+    #OPC5: deteta port scan; um IP a tentar muitas portas diferentes em pouco tempo
     if proto == "TCP" and TCP in pkt:
         porta_dst = pkt[TCP].dport
         if src_ip not in scan_tracker:
@@ -54,11 +54,12 @@ def verificar_anomalias(pkt, src_ip, proto, args):
         #alerta se um IP tentou mais de 15 portas distintas
         if len(scan_tracker[src_ip]) == 15:
             alerta = f"[ALERTA] possivel port scan — {src_ip} tentou {len(scan_tracker[src_ip])} portas distintas"
-            alertas.append(alerta)
-            if args.live:
-                print(f"\033[91m{alerta}\033[0m")
+            if alerta not in alertas:
+                alertas.append(alerta)
+                if args.live:
+                    print(f"\033[91m{alerta}\033[0m")
 
-    #OPC5: deteta ICMP flood — mais de 20 pings por segundo do mesmo IP
+    #OPC5: deteta ICMP flood; mais de 20 pings por segundo do mesmo IP
     if proto == "ICMP" and ICMP in pkt and pkt[ICMP].type == 8:
         agora = pkt.time
         if src_ip not in icmp_tracker:
@@ -99,7 +100,7 @@ def print_stats():
     segundos    = duracao.total_seconds()
 
     print(f"\n{CYAN}{'═' * 62}{RESET}")
-    print(f"{BOLD}{CYAN}  >>>  PACKET SNIFFER  ·  RELATORIO DE CAPTURA{RESET}")
+    print(f"{BOLD}{CYAN}  >>>  PACKET SNIFFER  ·  RELATÓRIO DE CAPTURA{RESET}")
     print(f"{CYAN}{'═' * 62}{RESET}")
     print(f"  {DIM}duração   {RESET}{WHITE}{str(duracao).split('.')[0]}{RESET}")
     print(f"  {DIM}pacotes   {RESET}{WHITE}{total_pkts}{RESET}")
@@ -229,7 +230,7 @@ def plot_stats():
     plt.tight_layout()
     plt.savefig("captura_stats.png", dpi=150, bbox_inches="tight",
                 facecolor="#0D1117")
-    print(f"  [->] grafico guardado em captura_stats.png")
+    print(f"  [->] gráfico guardado em captura_stats.png")
 
     import subprocess
     try:
@@ -271,7 +272,7 @@ def process_packet(pkt, args):
         if ICMP in pkt:
             proto = "ICMP"
             info  = f"Type {pkt[ICMP].type} (TTL:{ttl})"
-            #OPC2: calculo de RTT
+            #OPC2: cálculo de RTT
             if pkt[ICMP].type == 8:
                 icmp_pending[src_ip] = pkt.time
             elif pkt[ICMP].type == 0:
@@ -349,7 +350,7 @@ def main():
     print("\n[!] Captura terminada.")
     print_stats()
 
-    #OPC3: grafico só se o utilizador pedir explicitamente com --graph
+    #OPC3: gráfico só se o utilizador pedir explicitamente com --graph
     if args.graph:
         plot_stats()
 
