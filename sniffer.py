@@ -3,8 +3,9 @@ from scapy.all import *
 import datetime
 import os
 import signal
+import socket
 
-#OPCIONAL 1: estatísticas finais ツ
+#OPCIONAL 1: estatísticas finais
 #contadores globais inicializados a zero
 stats = {
     "ARP":     {"pacotes": 0, "bytes": 0},
@@ -16,22 +17,74 @@ stats = {
 start_time = None  #preenchido quando a captura arranca
 
 #OPCIONAL 2: calculo de RTT via ICMP
-#guarda o timestamp dos echo requests pendentes {ip_src: timestamp}
 icmp_pending = {}
-rtt_samples  = []  #lista de RTTs calculados em ms
+rtt_samples  = []
+
+#OPCIONAL 4: DNS resolver com cache para nao repetir queries
+dns_cache = {}
+
+#OPCIONAL 5: deteção de anomalias
+#regista quantas portas diferentes cada IP tentou aceder (port scan)
+scan_tracker  = {}  #{ip: {portas tentadas}}
+#regista timestamps dos pings por IP para detetar flood
+icmp_tracker  = {}  #{ip: [timestamps]}
+alertas       = []  #lista de alertas gerados durante a sessão
+
+def resolver_hostname(ip):
+    #devolve da cache se já foi resolvido antes
+    if ip in dns_cache:
+        return dns_cache[ip]
+    try:
+        hostname = socket.gethostbyaddr(ip)[0]
+        #encurta hostnames muito longos para nao poluir o output
+        if len(hostname) > 35:
+            hostname = hostname[:32] + "..."
+        dns_cache[ip] = hostname
+    except Exception:
+        dns_cache[ip] = ip
+    return dns_cache[ip]
+
+def verificar_anomalias(pkt, src_ip, proto, args):
+    #OPC5: deteta port scan — um IP a tentar muitas portas diferentes em pouco tempo
+    if proto == "TCP" and TCP in pkt:
+        porta_dst = pkt[TCP].dport
+        if src_ip not in scan_tracker:
+            scan_tracker[src_ip] = set()
+        scan_tracker[src_ip].add(porta_dst)
+        #alerta se um IP tentou mais de 15 portas distintas
+        if len(scan_tracker[src_ip]) == 15:
+            alerta = f"[ALERTA] possivel port scan — {src_ip} tentou {len(scan_tracker[src_ip])} portas distintas"
+            alertas.append(alerta)
+            if args.live:
+                print(f"\033[91m{alerta}\033[0m")
+
+    #OPC5: deteta ICMP flood — mais de 20 pings por segundo do mesmo IP
+    if proto == "ICMP" and ICMP in pkt and pkt[ICMP].type == 8:
+        agora = pkt.time
+        if src_ip not in icmp_tracker:
+            icmp_tracker[src_ip] = []
+        icmp_tracker[src_ip].append(agora)
+        #remove timestamps com mais de 1 segundo
+        icmp_tracker[src_ip] = [t for t in icmp_tracker[src_ip] if agora - t <= 1.0]
+        if len(icmp_tracker[src_ip]) > 20:
+            alerta = f"[ALERTA] flood ICMP detetado — {src_ip} enviou {len(icmp_tracker[src_ip])} pings em 1s"
+            #evita repetir o mesmo alerta
+            if alerta not in alertas:
+                alertas.append(alerta)
+                if args.live:
+                    print(f"\033[91m{alerta}\033[0m")
 
 def print_stats():
-    #cores ANSI para dar vida ao terminal
     RESET  = "\033[0m"
     BOLD   = "\033[1m"
     CYAN   = "\033[96m"
     GREEN  = "\033[92m"
     YELLOW = "\033[93m"
+    RED    = "\033[91m"
     BLUE   = "\033[94m"
     DIM    = "\033[2m"
     WHITE  = "\033[97m"
 
-    #cor associada a cada protocolo
     proto_cores = {
         "TCP":     BLUE,
         "UDP":     CYAN,
@@ -40,13 +93,11 @@ def print_stats():
         "UNKNOWN": DIM,
     }
 
-    #calcula totais gerais
     total_pkts  = sum(v["pacotes"] for v in stats.values())
     total_bytes = sum(v["bytes"]   for v in stats.values())
     duracao     = datetime.datetime.now() - start_time
     segundos    = duracao.total_seconds()
 
-    #header
     print(f"\n{CYAN}{'═' * 62}{RESET}")
     print(f"{BOLD}{CYAN}  >>>  PACKET SNIFFER  ·  RELATORIO DE CAPTURA{RESET}")
     print(f"{CYAN}{'═' * 62}{RESET}")
@@ -57,26 +108,20 @@ def print_stats():
         print(f"  {DIM}débito    {RESET}{WHITE}{total_bytes/segundos:.1f} B/s{RESET}")
     print(f"{CYAN}{'─' * 62}{RESET}")
 
-    #cabeçalho da tabela
     print(f"  {BOLD}{'PROTO':<10} {'PKTS':>6}  {'%':>5}   {'BYTES':>10}  {'%':>5}   DISTRIBUIÇÃO{RESET}")
     print(f"{DIM}{'─' * 62}{RESET}")
 
-    #linha por protocolo
     for proto, dados in sorted(stats.items(), key=lambda x: x[1]["pacotes"], reverse=True):
         if dados["pacotes"] == 0:
             continue
-
         cor       = proto_cores.get(proto, WHITE)
         pct_pkts  = (dados["pacotes"] / total_pkts  * 100) if total_pkts  > 0 else 0
         pct_bytes = (dados["bytes"]   / total_bytes * 100) if total_bytes > 0 else 0
-
-        #barra proporcional colorida (max 20 chars)
-        filled = int(pct_pkts / 5)
-        barra  = f"{cor}{'█' * filled}{DIM}{'░' * (20 - filled)}{RESET}"
-
+        filled    = int(pct_pkts / 5)
+        barra     = f"{cor}{'█' * filled}{DIM}{'░' * (20 - filled)}{RESET}"
         print(f"  {cor}{BOLD}{proto:<10}{RESET} {WHITE}{dados['pacotes']:>6}{RESET}  {cor}{pct_pkts:>4.1f}%{RESET}   {WHITE}{dados['bytes']:>10}{RESET}  {cor}{pct_bytes:>4.1f}%{RESET}   {barra}")
 
-    #OPC2: bloco de RTT no final do relatório
+    #OPC2: bloco de RTT
     if rtt_samples:
         print(f"{CYAN}{'─' * 62}{RESET}")
         print(f"  {BOLD}RTT MÉDIO (ICMP){RESET}")
@@ -85,12 +130,32 @@ def print_stats():
         print(f"  {DIM}máximo    {RESET}{YELLOW}{max(rtt_samples):.2f} ms{RESET}")
         print(f"  {DIM}média     {RESET}{YELLOW}{sum(rtt_samples)/len(rtt_samples):.2f} ms{RESET}")
 
+    #OPC5: bloco de alertas de segurança
+    if alertas:
+        print(f"{RED}{'─' * 62}{RESET}")
+        print(f"  {BOLD}{RED}ALERTAS DE SEGURANÇA DETETADOS{RESET}")
+        for a in alertas:
+            print(f"  {RED}{a}{RESET}")
+
+    #OPC4: top 5 hostnames resolvidos mais vistos
+    if dns_cache:
+        #conta quantas vezes cada hostname apareceu no tráfego TCP/UDP
+        hostname_counts = {}
+        for ip, hostname in dns_cache.items():
+            if hostname != ip:  #só mostra IPs que foram resolvidos
+                hostname_counts[hostname] = hostname_counts.get(hostname, 0) + 1
+        if hostname_counts:
+            top = sorted(hostname_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+            print(f"{CYAN}{'─' * 62}{RESET}")
+            print(f"  {BOLD}TOP HOSTNAMES RESOLVIDOS{RESET}")
+            for hostname, _ in top:
+                print(f"  {GREEN}→ {hostname}{RESET}")
+
     print(f"{CYAN}{'═' * 62}{RESET}\n")
 
 
 def plot_stats():
     #OPC3: gráfico opcional (só corre se matplotlib estiver instalado)
-    #para instalar: pip install matplotlib --break-system-packages
     try:
         import matplotlib.pyplot as plt
         import matplotlib.patches as patches
@@ -125,7 +190,6 @@ def plot_stats():
     fig.suptitle("Packet Sniffer  ·  Relatório de Captura",
                  color="white", fontsize=13, fontweight="bold")
 
-    #barras verticais: pacotes por protocolo
     bars = ax1.bar(protocolos, pacotes, color=bar_cores, width=0.5, zorder=3)
     ax1.set_facecolor("#161B22")
     ax1.set_title("Pacotes por Protocolo", color="white", pad=10)
@@ -140,7 +204,6 @@ def plot_stats():
                  f"{pct:.1f}%", ha="center", va="bottom",
                  color="white", fontsize=9, fontweight="bold")
 
-    #barras horizontais: bytes por protocolo
     y_pos = range(len(protocolos))
     hbars = ax2.barh(list(y_pos), pct_bytes, color=bar_cores, height=0.5, zorder=3)
     ax2.set_facecolor("#161B22")
@@ -168,7 +231,6 @@ def plot_stats():
                 facecolor="#0D1117")
     print(f"  [->] grafico guardado em captura_stats.png")
 
-    #tenta abrir o ficheiro automaticamente
     import subprocess
     try:
         subprocess.Popen(["xdg-open", "captura_stats.png"])
@@ -178,7 +240,6 @@ def plot_stats():
 
 def process_packet(pkt, args):
     # 1. FILTROS DE EXECUÇÃO
-    # Filtro de Protocolo
     if args.protocol:
         p_lower = args.protocol.lower()
         if p_lower == "icmp" and ICMP not in pkt: return
@@ -186,12 +247,10 @@ def process_packet(pkt, args):
         if p_lower == "udp"  and UDP  not in pkt: return
         if p_lower == "arp"  and ARP  not in pkt: return
 
-    # Filtro de IP
     if args.ip:
         if IP not in pkt or (pkt[IP].src != args.ip and pkt[IP].dst != args.ip):
             return
 
-    # Filtro de MAC
     if args.mac:
         if pkt.src != args.mac and pkt.dst != args.mac:
             return
@@ -212,12 +271,9 @@ def process_packet(pkt, args):
         if ICMP in pkt:
             proto = "ICMP"
             info  = f"Type {pkt[ICMP].type} (TTL:{ttl})"
-
             #OPC2: calculo de RTT
-            #echo request: guarda o timestamp indexado pelo ip de origem
             if pkt[ICMP].type == 8:
                 icmp_pending[src_ip] = pkt.time
-            #echo reply: emparelha com o request e calcula o RTT
             elif pkt[ICMP].type == 0:
                 if dst_ip in icmp_pending:
                     rtt_ms = (pkt.time - icmp_pending.pop(dst_ip)) * 1000
@@ -226,13 +282,22 @@ def process_packet(pkt, args):
 
         elif TCP in pkt:
             proto = "TCP"
-            info  = f"{src_ip}:{pkt[TCP].sport} -> {dst_ip}:{pkt[TCP].dport} [Flags: {pkt[TCP].flags}, TTL:{ttl}]"
+            #OPC4: resolve o hostname de destino
+            host  = resolver_hostname(dst_ip)
+            info  = f"{src_ip}:{pkt[TCP].sport} -> {host}:{pkt[TCP].dport} [Flags: {pkt[TCP].flags}, TTL:{ttl}]"
+
         elif UDP in pkt:
             proto = "UDP"
-            info  = f"{src_ip}:{pkt[UDP].sport} -> {dst_ip}:{pkt[UDP].dport} [TTL:{ttl}]"
+            #OPC4: resolve o hostname de destino
+            host  = resolver_hostname(dst_ip)
+            info  = f"{src_ip}:{pkt[UDP].sport} -> {host}:{pkt[UDP].dport} [TTL:{ttl}]"
 
-    mac_info = f"{pkt.src} -> {pkt.dst}"
+        #OPC5: verifica anomalias em tempo real
+        verificar_anomalias(pkt, src_ip, proto, args)
+
+    mac_info     = f"{pkt.src} -> {pkt.dst}"
     summary_line = f"[{time_now}] [{args.interface or 'any'}] {proto} | {len(pkt)} bytes | {mac_info} | {info if info else pkt.summary()}"
+
     if args.live: print(summary_line)
     if args.log:
         with open(args.log, "a") as f:
@@ -266,7 +331,7 @@ def main():
     if not args.live and not args.log:
         print("\n[!] AVISO: Define --live ou --log para ver resultados.\n")
 
-    print("A iniciar captura...")
+    print(f"A capturar em {args.interface or 'todas as interfaces'}... (Ctrl+C para parar)")
 
     stop = {"flag": False}
 
@@ -275,8 +340,11 @@ def main():
 
     signal.signal(signal.SIGINT, handle_sigint)
 
-    sniff(iface=args.interface, prn=lambda p: process_packet(p, args),
-          store=0, stop_filter=lambda p: stop["flag"])
+    try:
+        sniff(iface=args.interface, prn=lambda p: process_packet(p, args),
+              store=0, stop_filter=lambda p: stop["flag"])
+    except Exception as e:
+        print(f"[!] Erro na captura: {e}")
 
     print("\n[!] Captura terminada.")
     print_stats()
