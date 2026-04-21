@@ -24,9 +24,7 @@ rtt_samples  = []
 dns_cache = {}
 
 #OPCIONAL 5: deteção de anomalias
-#regista quantas portas diferentes cada IP tentou aceder (port scan)
 scan_tracker  = {}  #{ip: {portas tentadas}}
-#regista timestamps dos pings por IP para detetar flood
 icmp_tracker  = {}  #{ip: [timestamps]}
 alertas       = []  #lista de alertas gerados durante a sessão
 
@@ -53,7 +51,7 @@ def verificar_anomalias(pkt, src_ip, proto, args):
         scan_tracker[src_ip].add(porta_dst)
         #alerta se um IP tentou mais de 15 portas distintas
         if len(scan_tracker[src_ip]) == 15:
-            alerta = f"[ALERTA] possivel port scan — {src_ip} tentou {len(scan_tracker[src_ip])} portas distintas"
+            alerta = f"[ALERTA] possivel port scan - {src_ip} tentou {len(scan_tracker[src_ip])} portas distintas"
             if alerta not in alertas:
                 alertas.append(alerta)
                 if args.live:
@@ -68,8 +66,7 @@ def verificar_anomalias(pkt, src_ip, proto, args):
         #remove timestamps com mais de 1 segundo
         icmp_tracker[src_ip] = [t for t in icmp_tracker[src_ip] if agora - t <= 1.0]
         if len(icmp_tracker[src_ip]) > 20:
-            alerta = f"[ALERTA] flood ICMP detetado — {src_ip} enviou {len(icmp_tracker[src_ip])} pings em 1s"
-            #evita repetir o mesmo alerta
+            alerta = f"[ALERTA] flood ICMP detetado - {src_ip} enviou {len(icmp_tracker[src_ip])} pings em 1s"
             if alerta not in alertas:
                 alertas.append(alerta)
                 if args.live:
@@ -100,13 +97,13 @@ def print_stats():
     segundos    = duracao.total_seconds()
 
     print(f"\n{CYAN}{'═' * 62}{RESET}")
-    print(f"{BOLD}{CYAN}  >>>  PACKET SNIFFER  ·  RELATÓRIO DE CAPTURA{RESET}")
+    print(f"{BOLD}{CYAN}  >>>  PACKET SNIFFER  ·  RELATÓRIO DE CAPTURA  <<<{RESET}")
     print(f"{CYAN}{'═' * 62}{RESET}")
-    print(f"  {DIM}duração   {RESET}{WHITE}{str(duracao).split('.')[0]}{RESET}")
-    print(f"  {DIM}pacotes   {RESET}{WHITE}{total_pkts}{RESET}")
-    print(f"  {DIM}bytes     {RESET}{WHITE}{total_bytes} B  ({total_bytes/1024:.2f} KB){RESET}")
+    print(f"  {DIM}【 duração   {RESET}{WHITE}{str(duracao).split('.')[0]}{RESET}")
+    print(f"  {DIM}【 pacotes   {RESET}{WHITE}{total_pkts}{RESET}")
+    print(f"  {DIM}【 bytes     {RESET}{WHITE}{total_bytes} B  ({total_bytes/1024:.2f} KB){RESET}")
     if segundos > 0:
-        print(f"  {DIM}débito    {RESET}{WHITE}{total_bytes/segundos:.1f} B/s{RESET}")
+        print(f"  {DIM}【 débito    {RESET}{WHITE}{total_bytes/segundos:.1f} B/s{RESET}")
     print(f"{CYAN}{'─' * 62}{RESET}")
 
     print(f"  {BOLD}{'PROTO':<10} {'PKTS':>6}  {'%':>5}   {'BYTES':>10}  {'%':>5}   DISTRIBUIÇÃO{RESET}")
@@ -140,10 +137,9 @@ def print_stats():
 
     #OPC4: top 5 hostnames resolvidos mais vistos
     if dns_cache:
-        #conta quantas vezes cada hostname apareceu no tráfego TCP/UDP
         hostname_counts = {}
         for ip, hostname in dns_cache.items():
-            if hostname != ip:  #só mostra IPs que foram resolvidos
+            if hostname != ip:
                 hostname_counts[hostname] = hostname_counts.get(hostname, 0) + 1
         if hostname_counts:
             top = sorted(hostname_counts.items(), key=lambda x: x[1], reverse=True)[:5]
@@ -161,7 +157,7 @@ def plot_stats():
         import matplotlib.pyplot as plt
         import matplotlib.patches as patches
     except ImportError:
-        print("  [!] matplotlib nao instalado - grafico ignorado.")
+        print("  [!] matplotlib não instalado - gráfico ignorado.")
         print("  [!] para ativar: pip install matplotlib --break-system-packages\n")
         return
 
@@ -326,6 +322,8 @@ def main():
     parser.add_argument("-l", "--log",       help="Ativa modo log e define ficheiro de saída")
     parser.add_argument("--live",            action="store_true", help="Ativa impressão em tempo real na consola")
     parser.add_argument("--graph",           action="store_true", help="Gera grafico no final (requer matplotlib)")
+    parser.add_argument("--duration",        type=int, default=0,
+                        help="Para a captura automaticamente após N segundos (ex: --duration 30)")
 
     args = parser.parse_args()
 
@@ -334,6 +332,10 @@ def main():
 
     print(f"A capturar em {args.interface or 'todas as interfaces'}... (Ctrl+C para parar)")
 
+    #OPC6: informa o utilizador se a captura tem duração limitada
+    if args.duration > 0:
+        print(f"  [→] captura limitada a {args.duration} segundos")
+
     stop = {"flag": False}
 
     def handle_sigint(sig, frame):
@@ -341,9 +343,19 @@ def main():
 
     signal.signal(signal.SIGINT, handle_sigint)
 
+    #OPC6: stop_filter verifica tanto o Ctrl+C como o tempo limite
+    def deve_parar(pkt):
+        if stop["flag"]:
+            return True
+        if args.duration > 0:
+            elapsed = (datetime.datetime.now() - start_time).total_seconds()
+            if elapsed >= args.duration:
+                return True
+        return False
+
     try:
         sniff(iface=args.interface, prn=lambda p: process_packet(p, args),
-              store=0, stop_filter=lambda p: stop["flag"])
+              store=0, stop_filter=deve_parar)
     except Exception as e:
         print(f"[!] Erro na captura: {e}")
 
