@@ -1,0 +1,1247 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PACKET SNIFFER · NEURAL NET</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:     #020408;
+  --cyan:   #00ffff;
+  --green:  #00ff88;
+  --red:    #ff0044;
+  --amber:  #ffaa00;
+  --purple: #bf00ff;
+  --blue:   #0088ff;
+  --dim:    rgba(0,255,255,.12);
+  --font:   'Orbitron', sans-serif;
+  --mono:   'Share Tech Mono', monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--cyan);
+  font-family: var(--mono);
+  min-height: 100vh;
+  overflow-x: hidden;
+  cursor: crosshair;
+}
+
+/* ── CANVAS PARTICLES ── */
+#canvas-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* ── SCANLINE ── */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,255,255,.012) 2px,
+    rgba(0,255,255,.012) 4px
+  );
+  pointer-events: none;
+  z-index: 999;
+  animation: scanMove 8s linear infinite;
+}
+
+@keyframes scanMove {
+  0%   { background-position: 0 0; }
+  100% { background-position: 0 100px; }
+}
+
+/* ── ALERT FLASH ── */
+.alert-flash {
+  position: fixed;
+  inset: 0;
+  background: rgba(255,0,68,.06);
+  pointer-events: none;
+  z-index: 998;
+  opacity: 0;
+}
+
+.alert-flash.bang {
+  animation: flashBang .6s ease;
+}
+
+@keyframes flashBang {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ── LAYOUT ── */
+#app {
+  position: relative;
+  z-index: 1;
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 0 20px 60px;
+}
+
+/* ── HEADER ── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 0 16px;
+  border-bottom: 1px solid rgba(0,255,255,.15);
+  margin-bottom: 24px;
+}
+
+.hdr-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hdr-title {
+  font-family: var(--font);
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: .15em;
+  color: var(--cyan);
+  text-shadow: 0 0 20px var(--cyan), 0 0 40px rgba(0,255,255,.4);
+}
+
+.hdr-sub {
+  font-size: 10px;
+  letter-spacing: .2em;
+  color: rgba(0,255,255,.4);
+  text-transform: uppercase;
+}
+
+.hdr-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.hdr-stat {
+  text-align: right;
+}
+
+.hdr-stat-val {
+  font-family: var(--font);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--green);
+  text-shadow: 0 0 12px var(--green);
+}
+
+.hdr-stat-lbl {
+  font-size: 9px;
+  letter-spacing: .15em;
+  color: rgba(0,255,255,.35);
+  text-transform: uppercase;
+}
+
+.pulse-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text3, #333);
+}
+
+.pulse-dot.on {
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green), 0 0 20px rgba(0,255,136,.5);
+  animation: dotPulse 1.5s ease infinite;
+}
+
+@keyframes dotPulse { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.4);opacity:.6} }
+
+/* ── TOP GRID ── */
+.top-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 320px;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+/* ── CYBER CARD ── */
+.cyber-card {
+  background: rgba(0,8,16,.7);
+  border: 1px solid rgba(0,255,255,.2);
+  border-radius: 4px;
+  padding: 18px 20px;
+  position: relative;
+  backdrop-filter: blur(6px);
+  overflow: hidden;
+}
+
+.cyber-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  opacity: .6;
+}
+
+.cyber-card::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 2px;
+  background: var(--cyan);
+  opacity: .4;
+}
+
+.card-lbl {
+  font-size: 9px;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: rgba(0,255,255,.4);
+  margin-bottom: 10px;
+}
+
+.card-val {
+  font-family: var(--font);
+  font-size: 38px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -.01em;
+  text-shadow: 0 0 20px currentColor;
+}
+
+.card-sub {
+  font-size: 10px;
+  color: rgba(0,255,255,.3);
+  margin-top: 8px;
+  letter-spacing: .1em;
+}
+
+.cc-pkts  .card-val { color: var(--cyan);   text-shadow: 0 0 20px var(--cyan); }
+.cc-bytes .card-val { color: var(--blue);   text-shadow: 0 0 20px var(--blue); }
+.cc-alert .card-val { color: var(--red);    text-shadow: 0 0 20px var(--red);  }
+
+/* ── RTT RADAR ── */
+.rtt-card {
+  background: rgba(0,8,16,.7);
+  border: 1px solid rgba(191,0,255,.3);
+  border-radius: 4px;
+  padding: 18px 20px;
+  position: relative;
+  backdrop-filter: blur(6px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+}
+
+.rtt-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--purple), transparent);
+}
+
+.rtt-card::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 2px;
+  background: var(--purple);
+  opacity: .5;
+}
+
+.rtt-lbl {
+  font-size: 9px;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: rgba(191,0,255,.6);
+  margin-bottom: 8px;
+  align-self: flex-start;
+}
+
+.rtt-gauge-wrap {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  margin: 4px 0;
+}
+
+.rtt-gauge-wrap canvas { display: block; }
+
+.rtt-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.rtt-big {
+  font-family: var(--font);
+  font-size: 26px;
+  font-weight: 900;
+  color: var(--purple);
+  text-shadow: 0 0 16px var(--purple);
+  line-height: 1;
+}
+
+.rtt-unit { font-size: 10px; color: rgba(191,0,255,.5); letter-spacing: .1em; }
+
+.rtt-range-row {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+  align-self: flex-start;
+}
+
+.rtt-r {
+  font-size: 10px;
+  color: rgba(191,0,255,.5);
+}
+
+.rtt-r span { color: var(--purple); }
+.rtt-samples-lbl { font-size: 9px; color: rgba(191,0,255,.35); margin-top: 2px; align-self: flex-start; }
+
+/* ── MIDDLE GRID ── */
+.mid-grid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+/* ── DISTRIBUTION ── */
+.dist-card { padding: 18px 22px; }
+
+.proto-list { display: flex; flex-direction: column; gap: 10px; }
+
+.proto-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.proto-name {
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 700;
+  width: 52px;
+  text-align: right;
+  letter-spacing: .1em;
+  flex-shrink: 0;
+}
+
+.proto-track {
+  flex: 1;
+  height: 4px;
+  background: rgba(0,255,255,.06);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+.proto-fill {
+  height: 100%;
+  border-radius: 2px;
+  width: 0%;
+  transition: width .8s cubic-bezier(.4,0,.2,1);
+  position: relative;
+}
+
+.proto-fill::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: -3px;
+  width: 6px;
+  height: 10px;
+  background: currentColor;
+  border-radius: 2px;
+  filter: blur(2px);
+  opacity: .8;
+}
+
+.proto-info {
+  font-size: 10px;
+  width: 80px;
+  text-align: right;
+  flex-shrink: 0;
+  color: rgba(0,255,255,.4);
+}
+
+.p-tcp     { color: var(--blue);   }
+.p-udp     { color: var(--green);  }
+.p-icmp    { color: var(--cyan);   }
+.p-arp     { color: var(--amber);  }
+.p-unknown { color: rgba(0,255,255,.25); }
+
+.f-tcp     { background: var(--blue);   box-shadow: 0 0 8px var(--blue); }
+.f-udp     { background: var(--green);  box-shadow: 0 0 8px var(--green); }
+.f-icmp    { background: var(--cyan);   box-shadow: 0 0 8px var(--cyan); }
+.f-arp     { background: var(--amber);  box-shadow: 0 0 8px var(--amber); }
+.f-unknown { background: rgba(0,255,255,.25); }
+
+/* ── HOSTNAMES ── */
+.host-card { padding: 18px 20px; }
+
+.host-list { display: flex; flex-direction: column; gap: 6px; }
+
+.host-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: rgba(0,255,255,.03);
+  border: 1px solid rgba(0,255,255,.08);
+  border-radius: 3px;
+  font-size: 11px;
+  transition: border-color .2s, background .2s;
+  animation: hostIn .3s ease;
+}
+
+@keyframes hostIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.host-item:hover {
+  border-color: rgba(0,255,255,.25);
+  background: rgba(0,255,255,.06);
+}
+
+.host-arrow { color: var(--cyan); opacity: .5; flex-shrink: 0; }
+.host-name  { color: rgba(0,255,255,.8); flex: 1; }
+.host-empty { color: rgba(0,255,255,.2); font-size: 11px; padding: 8px 0; font-style: italic; }
+
+/* ── ALERTS ── */
+.alerts-wrap { margin-bottom: 20px; }
+
+.alert-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(255,0,68,.05);
+  border: 1px solid rgba(255,0,68,.25);
+  border-radius: 3px;
+  margin-bottom: 8px;
+  animation: alertSlide .4s ease;
+}
+
+@keyframes alertSlide {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.alert-ico {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,0,68,.4);
+  border-radius: 3px;
+  flex-shrink: 0;
+  animation: alertGlow 1s ease infinite alternate;
+}
+
+@keyframes alertGlow {
+  from { box-shadow: 0 0 4px rgba(255,0,68,.3); }
+  to   { box-shadow: 0 0 12px rgba(255,0,68,.7); }
+}
+
+.alert-ico svg { width: 14px; height: 14px; stroke: var(--red); fill: none; stroke-width: 2; }
+.alert-txt { font-size: 12px; color: var(--red); line-height: 1.5; text-shadow: 0 0 8px rgba(255,0,68,.4); }
+.no-alerts { font-size: 11px; color: rgba(0,255,255,.2); font-style: italic; padding: 4px 0; }
+
+/* ── LOG ── */
+.log-wrap { margin-bottom: 20px; }
+
+.log-card { padding: 0; overflow: hidden; }
+
+.log-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(0,255,255,.1);
+  background: rgba(0,255,255,.03);
+  flex-wrap: wrap;
+}
+
+.search-input {
+  background: rgba(0,255,255,.05);
+  border: 1px solid rgba(0,255,255,.15);
+  border-radius: 3px;
+  color: var(--cyan);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 10px;
+  width: 200px;
+  outline: none;
+  transition: border-color .2s;
+}
+
+.search-input:focus { border-color: var(--cyan); box-shadow: 0 0 8px rgba(0,255,255,.15); }
+.search-input::placeholder { color: rgba(0,255,255,.2); }
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 2px;
+  font-family: var(--font);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all .15s;
+  opacity: .3;
+}
+
+.tag.active { opacity: 1; }
+
+.tag-tcp    { color: var(--blue);  border-color: rgba(0,136,255,.4); }
+.tag-udp    { color: var(--green); border-color: rgba(0,255,136,.4); }
+.tag-icmp   { color: var(--cyan);  border-color: rgba(0,255,255,.4); }
+.tag-arp    { color: var(--amber); border-color: rgba(255,170,0,.4); }
+.tag-alert  { color: var(--red);   border-color: rgba(255,0,68,.4); }
+.tag-all    { color: rgba(0,255,255,.5); border-color: rgba(0,255,255,.15); }
+
+.log-area {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.9;
+  padding: 14px 16px;
+  min-height: 280px;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre;
+}
+
+.log-area::-webkit-scrollbar { width: 3px; }
+.log-area::-webkit-scrollbar-track { background: transparent; }
+.log-area::-webkit-scrollbar-thumb { background: rgba(0,255,255,.2); }
+
+.log-line { display: block; transition: background .1s; }
+.log-line:hover { background: rgba(0,255,255,.03); }
+
+.log-tcp     { color: var(--blue);  }
+.log-udp     { color: var(--green); }
+.log-icmp    { color: var(--cyan);  }
+.log-arp     { color: var(--amber); }
+.log-unknown { color: rgba(0,255,255,.25); }
+.log-alert   { color: var(--red); font-weight: 600; text-shadow: 0 0 6px rgba(255,0,68,.5); }
+.log-empty   { color: rgba(0,255,255,.2); font-style: italic; text-align: center; padding: 40px 0; display: block; }
+
+/* ── CONFIG ── */
+.cfg-card { padding: 20px 24px; margin-bottom: 20px; }
+
+.cfg-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.field label {
+  display: block;
+  font-size: 9px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: rgba(0,255,255,.3);
+  margin-bottom: 6px;
+}
+
+input, select {
+  width: 100%;
+  background: rgba(0,255,255,.04);
+  border: 1px solid rgba(0,255,255,.15);
+  border-radius: 3px;
+  color: var(--cyan);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 8px 12px;
+  outline: none;
+  transition: border-color .2s, box-shadow .2s;
+}
+
+input:focus, select:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 12px rgba(0,255,255,.1);
+}
+
+input::placeholder { color: rgba(0,255,255,.18); }
+select option { background: #020408; color: var(--cyan); }
+
+.btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 18px;
+  border-radius: 3px;
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  cursor: pointer;
+  border: 1px solid rgba(0,255,255,.25);
+  background: transparent;
+  color: rgba(0,255,255,.6);
+  transition: all .15s;
+}
+
+.btn:hover {
+  background: rgba(0,255,255,.07);
+  color: var(--cyan);
+  box-shadow: 0 0 12px rgba(0,255,255,.15);
+}
+
+.btn svg { width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 2; }
+
+.btn-go {
+  background: var(--cyan);
+  color: #020408;
+  border-color: var(--cyan);
+  box-shadow: 0 0 20px rgba(0,255,255,.3);
+}
+
+.btn-go:hover {
+  background: #33ffff;
+  box-shadow: 0 0 30px rgba(0,255,255,.5);
+  color: #020408;
+}
+
+.btn-danger {
+  border-color: rgba(255,0,68,.35);
+  color: rgba(255,0,68,.6);
+}
+
+.btn-danger:hover {
+  background: rgba(255,0,68,.07);
+  color: var(--red);
+  box-shadow: 0 0 12px rgba(255,0,68,.15);
+}
+
+.cmd-block {
+  display: none;
+  margin-top: 14px;
+  background: rgba(0,255,255,.03);
+  border: 1px solid rgba(0,255,255,.2);
+  border-radius: 3px;
+  padding: 12px 16px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--green);
+  cursor: pointer;
+  transition: all .2s;
+  position: relative;
+  text-shadow: 0 0 8px rgba(0,255,136,.3);
+}
+
+.cmd-block.show { display: block; }
+.cmd-block:hover { border-color: var(--cyan); box-shadow: 0 0 12px rgba(0,255,255,.1); }
+.cmd-hint { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 9px; color: rgba(0,255,255,.25); letter-spacing: .1em; }
+
+/* ── EXPORT ── */
+.export-card { padding: 18px 22px; }
+.export-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* ── SECTION LABEL ── */
+.sec-lbl {
+  font-family: var(--font);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: rgba(0,255,255,.3);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sec-lbl::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(0,255,255,.15), transparent);
+}
+
+/* ── RESPONSIVE ── */
+@media (max-width: 1100px) {
+  .top-grid { grid-template-columns: 1fr 1fr 1fr; }
+  .rtt-card { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 24px; }
+  .mid-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 700px) {
+  .top-grid { grid-template-columns: 1fr 1fr; }
+  .cfg-grid { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+
+<canvas id="canvas-bg"></canvas>
+<div class="alert-flash" id="alert-flash"></div>
+
+<div id="app">
+
+<!-- HEADER -->
+<header>
+  <div class="hdr-left">
+    <div class="hdr-title">PACKET SNIFFER</div>
+    <div class="hdr-sub">network analysis tool &nbsp;·&nbsp; RC TP2 &nbsp;·&nbsp; UMinho LEI</div>
+  </div>
+  <div class="hdr-right">
+    <div class="hdr-stat">
+      <div class="hdr-stat-val" id="h-pkts">0</div>
+      <div class="hdr-stat-lbl">pacotes</div>
+    </div>
+    <div class="hdr-stat">
+      <div class="hdr-stat-val" id="h-debito" style="color:var(--cyan);text-shadow:0 0 12px var(--cyan)">—</div>
+      <div class="hdr-stat-lbl">KB capturados</div>
+    </div>
+    <div class="pulse-dot" id="status-dot"></div>
+  </div>
+</header>
+
+<!-- CONFIG -->
+<div class="sec-lbl">configuração da captura</div>
+<div class="cyber-card cfg-card">
+  <div class="cfg-grid">
+    <div class="field"><label>interface de rede</label><input type="text" id="iface" placeholder="wlp2s0, eth0, any…"/></div>
+    <div class="field"><label>protocolo</label>
+      <select id="proto">
+        <option value="">todos os protocolos</option>
+        <option value="tcp">TCP</option>
+        <option value="udp">UDP</option>
+        <option value="icmp">ICMP</option>
+        <option value="arp">ARP</option>
+      </select>
+    </div>
+    <div class="field"><label>filtro por IP</label><input type="text" id="fip" placeholder="ex: 172.26.62.188"/></div>
+    <div class="field"><label>filtro por MAC</label><input type="text" id="fmac" placeholder="ex: a8:3b:76:1a:1e:85"/></div>
+    <div class="field"><label>ficheiro de log</label><input type="text" id="flog" placeholder="ex: captura.txt"/></div>
+    <div class="field"><label>duração (segundos)</label><input type="number" id="dur" placeholder="0 = sem limite" min="0"/></div>
+  </div>
+  <div class="btn-row">
+    <button class="btn" onclick="gerarComando()">
+      <svg viewBox="0 0 16 16"><polyline points="4,6 2,8 4,10"/><polyline points="12,6 14,8 12,10"/><line x1="8" y1="3" x2="6" y2="13"/></svg>
+      gerar comando
+    </button>
+    <button class="btn btn-go" onclick="simularCaptura()">
+      <svg viewBox="0 0 16 16"><polygon points="5,3 13,8 5,13"/></svg>
+      simular captura
+    </button>
+    <button class="btn btn-danger" onclick="limparTudo()">
+      <svg viewBox="0 0 16 16"><polyline points="3,6 4,14 12,14 13,6"/><line x1="1" y1="6" x2="15" y2="6"/><path d="M6 6V4h4v2"/></svg>
+      limpar
+    </button>
+  </div>
+  <div class="cmd-block" id="cmd-block" onclick="copiarCmd(this)">
+    <span class="cmd-hint">clica para copiar</span>
+  </div>
+</div>
+
+<!-- METRICS -->
+<div class="sec-lbl">métricas em tempo real</div>
+<div class="top-grid">
+  <div class="cyber-card cc-pkts">
+    <div class="card-lbl">pacotes capturados</div>
+    <div class="card-val" id="s-pkts">0</div>
+    <div class="card-sub" id="s-sub">aguardando captura</div>
+  </div>
+  <div class="cyber-card cc-bytes">
+    <div class="card-lbl">dados transferidos</div>
+    <div class="card-val" id="s-bytes">0.00</div>
+    <div class="card-sub">KB capturados</div>
+  </div>
+  <div class="cyber-card cc-alert">
+    <div class="card-lbl">alertas de segurança</div>
+    <div class="card-val" id="s-alerts">0</div>
+    <div class="card-sub">detetados</div>
+  </div>
+  <div class="rtt-card">
+    <div class="rtt-lbl">RTT médio · ICMP</div>
+    <div class="rtt-gauge-wrap">
+      <canvas id="rtt-gauge" width="120" height="120"></canvas>
+      <div class="rtt-center">
+        <div class="rtt-big" id="s-rtt">—</div>
+        <div class="rtt-unit" id="rtt-unit"></div>
+      </div>
+    </div>
+    <div class="rtt-range-row">
+      <div class="rtt-r">mín <span id="rtt-min">—</span></div>
+      <div class="rtt-r">máx <span id="rtt-max">—</span></div>
+    </div>
+    <div class="rtt-samples-lbl" id="rtt-samples">0 amostras</div>
+  </div>
+</div>
+
+<!-- MIDDLE -->
+<div class="mid-grid">
+  <div class="cyber-card dist-card">
+    <div class="sec-lbl" style="margin-bottom:14px">distribuição de tráfego</div>
+    <div class="proto-list">
+      <div class="proto-row"><span class="proto-name p-tcp">TCP</span><div class="proto-track"><div class="proto-fill f-tcp" id="bar-tcp"></div></div><span class="proto-info" id="info-tcp">0 pkts · 0%</span></div>
+      <div class="proto-row"><span class="proto-name p-udp">UDP</span><div class="proto-track"><div class="proto-fill f-udp" id="bar-udp"></div></div><span class="proto-info" id="info-udp">0 pkts · 0%</span></div>
+      <div class="proto-row"><span class="proto-name p-icmp">ICMP</span><div class="proto-track"><div class="proto-fill f-icmp" id="bar-icmp"></div></div><span class="proto-info" id="info-icmp">0 pkts · 0%</span></div>
+      <div class="proto-row"><span class="proto-name p-arp">ARP</span><div class="proto-track"><div class="proto-fill f-arp" id="bar-arp"></div></div><span class="proto-info" id="info-arp">0 pkts · 0%</span></div>
+      <div class="proto-row"><span class="proto-name p-unknown">UNK</span><div class="proto-track"><div class="proto-fill f-unknown" id="bar-unknown"></div></div><span class="proto-info" id="info-unknown">0 pkts · 0%</span></div>
+    </div>
+  </div>
+  <div class="cyber-card host-card">
+    <div class="sec-lbl" style="margin-bottom:12px">top hostnames</div>
+    <div class="host-list" id="host-list">
+      <div class="host-empty">aguardando dados…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ALERTS -->
+<div class="sec-lbl">alertas de segurança</div>
+<div class="alerts-wrap" id="alert-list">
+  <div class="no-alerts">nenhum alerta detetado</div>
+</div>
+
+<!-- LOG -->
+<div class="sec-lbl">registo de pacotes</div>
+<div class="cyber-card log-card">
+  <div class="log-toolbar">
+    <input type="text" class="search-input" id="search" placeholder="pesquisar…" oninput="filtrarLog()"/>
+    <span class="tag tag-tcp   active" id="tag-TCP"    onclick="filtrarProto('TCP',this)">TCP</span>
+    <span class="tag tag-udp   active" id="tag-UDP"    onclick="filtrarProto('UDP',this)">UDP</span>
+    <span class="tag tag-icmp  active" id="tag-ICMP"   onclick="filtrarProto('ICMP',this)">ICMP</span>
+    <span class="tag tag-arp   active" id="tag-ARP"    onclick="filtrarProto('ARP',this)">ARP</span>
+    <span class="tag tag-alert active" id="tag-ALERTA" onclick="filtrarProto('ALERTA',this)">ALERTA</span>
+    <span class="tag tag-all"          onclick="toggleTodos()">TODOS</span>
+  </div>
+  <div class="log-area" id="log">
+    <span class="log-empty">sem pacotes — clica em "simular captura"</span>
+  </div>
+</div>
+
+<!-- EXPORT -->
+<div class="sec-lbl" style="margin-top:20px">exportar dados</div>
+<div class="cyber-card export-card">
+  <div class="export-row">
+    <button class="btn" onclick="exportarTxt()">
+      <svg viewBox="0 0 16 16"><rect x="3" y="1" width="10" height="14" rx="1"/><line x1="6" y1="5" x2="10" y2="5"/><line x1="6" y1="8" x2="10" y2="8"/></svg>
+      captura .txt
+    </button>
+    <button class="btn" onclick="exportarCsv()">
+      <svg viewBox="0 0 16 16"><rect x="1" y="3" width="14" height="10" rx="1"/><line x1="1" y1="7" x2="15" y2="7"/><line x1="5" y1="3" x2="5" y2="13"/></svg>
+      tabela .csv
+    </button>
+    <button class="btn btn-go" onclick="exportarRelatorio()">
+      <svg viewBox="0 0 16 16"><rect x="3" y="1" width="10" height="14" rx="1"/><line x1="6" y1="5" x2="10" y2="5"/><line x1="6" y1="8" x2="10" y2="8"/></svg>
+      relatório completo
+    </button>
+  </div>
+</div>
+
+</div><!-- /app -->
+
+<script>
+/* ══════════════════════════════════════════════
+   PARTICLES BACKGROUND
+══════════════════════════════════════════════ */
+const canvas = document.getElementById('canvas-bg');
+const ctx    = canvas.getContext('2d');
+let W, H, particles = [];
+
+function resize(){
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+
+function makeParticle(){
+  return {
+    x: Math.random() * W,
+    y: Math.random() * H,
+    vx: (Math.random()-.5) * .4,
+    vy: (Math.random()-.5) * .4,
+    r: Math.random() * 1.5 + .5,
+    alpha: Math.random() * .5 + .1
+  };
+}
+
+function initParticles(){
+  particles = [];
+  const n = Math.floor(W * H / 12000);
+  for(let i=0;i<n;i++) particles.push(makeParticle());
+}
+
+function drawParticles(){
+  ctx.clearRect(0,0,W,H);
+
+  // lines between close particles
+  for(let i=0;i<particles.length;i++){
+    for(let j=i+1;j<particles.length;j++){
+      const dx = particles[i].x - particles[j].x;
+      const dy = particles[i].y - particles[j].y;
+      const d  = Math.sqrt(dx*dx + dy*dy);
+      if(d < 120){
+        ctx.beginPath();
+        ctx.moveTo(particles[i].x, particles[i].y);
+        ctx.lineTo(particles[j].x, particles[j].y);
+        ctx.strokeStyle = `rgba(0,255,255,${.06*(1-d/120)})`;
+        ctx.lineWidth = .5;
+        ctx.stroke();
+      }
+    }
+  }
+
+  // dots
+  particles.forEach(p=>{
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(0,255,255,${p.alpha})`;
+    ctx.fill();
+
+    p.x += p.vx;
+    p.y += p.vy;
+    if(p.x < 0 || p.x > W) p.vx *= -1;
+    if(p.y < 0 || p.y > H) p.vy *= -1;
+  });
+
+  requestAnimationFrame(drawParticles);
+}
+
+window.addEventListener('resize', ()=>{ resize(); initParticles(); });
+resize(); initParticles(); drawParticles();
+
+/* ══════════════════════════════════════════════
+   RTT GAUGE
+══════════════════════════════════════════════ */
+function drawGauge(pct, val){
+  const c   = document.getElementById('rtt-gauge');
+  const g   = c.getContext('2d');
+  const cx  = 60, cy = 60, r = 48;
+  const startAngle = Math.PI * .75;
+  const endAngle   = Math.PI * 2.25;
+  const fillAngle  = startAngle + (endAngle - startAngle) * Math.min(pct, 1);
+
+  g.clearRect(0, 0, 120, 120);
+
+  // track
+  g.beginPath();
+  g.arc(cx, cy, r, startAngle, endAngle);
+  g.strokeStyle = 'rgba(191,0,255,.1)';
+  g.lineWidth = 6;
+  g.lineCap = 'round';
+  g.stroke();
+
+  if(pct > 0){
+    // glow fill
+    const grad = g.createLinearGradient(cx-r, cy, cx+r, cy);
+    grad.addColorStop(0, '#6600ff');
+    grad.addColorStop(1, '#ff00ff');
+
+    g.beginPath();
+    g.arc(cx, cy, r, startAngle, fillAngle);
+    g.strokeStyle = grad;
+    g.lineWidth = 6;
+    g.lineCap = 'round';
+    g.shadowColor = '#bf00ff';
+    g.shadowBlur = 16;
+    g.stroke();
+    g.shadowBlur = 0;
+
+    // tip dot
+    const tx = cx + r * Math.cos(fillAngle);
+    const ty = cy + r * Math.sin(fillAngle);
+    g.beginPath();
+    g.arc(tx, ty, 5, 0, Math.PI*2);
+    g.fillStyle = '#ff00ff';
+    g.shadowColor = '#ff00ff';
+    g.shadowBlur = 12;
+    g.fill();
+    g.shadowBlur = 0;
+  }
+}
+
+drawGauge(0, 0);
+
+/* ══════════════════════════════════════════════
+   DATA
+══════════════════════════════════════════════ */
+let allPackets = [];
+let stats = { TCP:{p:0,b:0}, UDP:{p:0,b:0}, ICMP:{p:0,b:0}, ARP:{p:0,b:0}, UNKNOWN:{p:0,b:0} };
+let alerts = [], rttSamples = [], hostnames = [];
+let activeProtos = new Set(['TCP','UDP','ICMP','ARP','ALERTA']);
+const PROTOS = ['TCP','UDP','ICMP','ARP','UNKNOWN'];
+
+function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function lineCls(l){
+  if(l.startsWith('[ALERTA]'))      return 'log-alert';
+  if(l.includes('] TCP '))          return 'log-tcp';
+  if(l.includes('] UDP '))          return 'log-udp';
+  if(l.includes('] ICMP '))         return 'log-icmp';
+  if(l.includes('] ARP '))          return 'log-arp';
+  return 'log-unknown';
+}
+
+function lineMatchesProto(l){
+  for(const p of activeProtos){
+    if(p==='ALERTA' && l.startsWith('[ALERTA]')) return true;
+    if(l.includes(`] ${p} `)) return true;
+  }
+  return false;
+}
+
+function filtrarLog(){
+  const q  = document.getElementById('search').value.toLowerCase();
+  const el = document.getElementById('log');
+  const lines = allPackets.filter(l => lineMatchesProto(l) && (!q || l.toLowerCase().includes(q)));
+  if(!lines.length){ el.innerHTML='<span class="log-empty">sem resultados.</span>'; return; }
+  el.innerHTML = lines.map(l=>`<span class="log-line ${lineCls(l)}">${esc(l)}</span>`).join('\n');
+  el.scrollTop = el.scrollHeight;
+}
+
+function filtrarProto(p, el){
+  if(activeProtos.has(p)){ activeProtos.delete(p); el.classList.remove('active'); }
+  else { activeProtos.add(p); el.classList.add('active'); }
+  filtrarLog();
+}
+
+function toggleTodos(){
+  const all = ['TCP','UDP','ICMP','ARP','ALERTA'];
+  const anyOff = all.some(p=>!activeProtos.has(p));
+  all.forEach(p=>{
+    activeProtos[anyOff?'add':'delete'](p);
+    const t = document.getElementById('tag-'+p);
+    if(t) t.classList[anyOff?'add':'remove']('active');
+  });
+  filtrarLog();
+}
+
+function atualizarStats(){
+  const totalP = PROTOS.reduce((a,k)=>a+stats[k].p, 0);
+  const totalB = PROTOS.reduce((a,k)=>a+stats[k].b, 0);
+
+  // header + counters
+  document.getElementById('h-pkts').textContent  = totalP;
+  document.getElementById('h-debito').textContent = (totalB/1024).toFixed(2);
+  document.getElementById('s-pkts').textContent   = totalP;
+  document.getElementById('s-bytes').textContent  = (totalB/1024).toFixed(2);
+  document.getElementById('s-alerts').textContent = alerts.length;
+
+  // RTT
+  if(rttSamples.length){
+    const avg = (rttSamples.reduce((a,b)=>a+b,0)/rttSamples.length).toFixed(1);
+    const mn  = Math.min(...rttSamples).toFixed(1);
+    const mx  = Math.max(...rttSamples).toFixed(1);
+    document.getElementById('s-rtt').textContent       = avg;
+    document.getElementById('rtt-unit').textContent    = 'ms';
+    document.getElementById('rtt-min').textContent     = mn + ' ms';
+    document.getElementById('rtt-max').textContent     = mx + ' ms';
+    document.getElementById('rtt-samples').textContent = rttSamples.length + ' amostras';
+    drawGauge(parseFloat(avg)/200, parseFloat(avg));
+  }
+
+  // bars
+  PROTOS.forEach(k=>{
+    const pct  = totalP ? Math.round(stats[k].p/totalP*100) : 0;
+    const bar  = document.getElementById('bar-'+k.toLowerCase());
+    const info = document.getElementById('info-'+k.toLowerCase());
+    if(bar)  bar.style.width  = pct + '%';
+    if(info) info.textContent = stats[k].p + ' pkts · ' + pct + '%';
+  });
+
+  // hostnames
+  const hl = document.getElementById('host-list');
+  if(hostnames.length){
+    hl.innerHTML = hostnames.slice(0,6).map(h=>`
+      <div class="host-item">
+        <span class="host-arrow">→</span>
+        <span class="host-name">${esc(h)}</span>
+      </div>`).join('');
+  }
+
+  // alerts
+  const al = document.getElementById('alert-list');
+  if(alerts.length){
+    al.innerHTML = alerts.map(a=>`
+      <div class="alert-item">
+        <div class="alert-ico">
+          <svg viewBox="0 0 16 16"><path d="M8 2L1 14h14L8 2z"/><line x1="8" y1="7" x2="8" y2="10"/><circle cx="8" cy="12.5" r=".6" fill="currentColor"/></svg>
+        </div>
+        <div class="alert-txt">${esc(a)}</div>
+      </div>`).join('');
+    // flash
+    const fl = document.getElementById('alert-flash');
+    fl.classList.remove('bang');
+    void fl.offsetWidth;
+    fl.classList.add('bang');
+  }
+
+  // status dot
+  if(totalP > 0) document.getElementById('status-dot').classList.add('on');
+}
+
+function gerarComando(){
+  const iface = document.getElementById('iface').value;
+  const proto = document.getElementById('proto').value;
+  const ip    = document.getElementById('fip').value;
+  const mac   = document.getElementById('fmac').value;
+  const log   = document.getElementById('flog').value;
+  const dur   = document.getElementById('dur').value;
+  let cmd = 'sudo python3 sniffer.py --live';
+  if(iface) cmd += ` -i ${iface}`;
+  if(proto) cmd += ` -p ${proto}`;
+  if(ip)    cmd += ` --ip ${ip}`;
+  if(mac)   cmd += ` --mac ${mac}`;
+  if(log)   cmd += ` -l ${log}`;
+  if(dur && parseInt(dur)>0) cmd += ` --duration ${dur}`;
+  const el = document.getElementById('cmd-block');
+  el.childNodes[0].textContent = cmd;
+  el.classList.add('show');
+}
+
+function copiarCmd(el){
+  const txt = el.childNodes[0].textContent;
+  navigator.clipboard.writeText(txt).then(()=>{
+    const orig = el.style.borderColor;
+    el.style.borderColor = '#00ff88';
+    setTimeout(()=>el.style.borderColor = orig, 800);
+  }).catch(()=>{});
+}
+
+function simularCaptura(){
+  allPackets=[]; alerts=[]; rttSamples=[]; hostnames=[];
+  stats={TCP:{p:0,b:0},UDP:{p:0,b:0},ICMP:{p:0,b:0},ARP:{p:0,b:0},UNKNOWN:{p:0,b:0}};
+
+  const ips   = ['172.26.62.188','172.26.0.1','8.8.8.8','1.1.1.1','10.0.0.5'];
+  const hosts = ['dns3.uminho.pt','carolinad','tlv03s02-in-f14.1e100.net','lb-140-82-121-5-fra.github.com','ec2-51-102-89-198.eu-central-1.c...','cloudflare.com','dns.google'];
+  const macs  = ['a8:3b:76:1a:1e:85','d4:7f:35:16:e2:9f','11:22:33:44:55:66'];
+  const iface = 'wlp2s0';
+  const now   = new Date();
+  const pad   = n => String(n).padStart(2,'0');
+  const time  = () => { const t=new Date(now.getTime()+Math.random()*60000); return`${pad(t.getHours())}:${pad(t.getMinutes())}:${pad(t.getSeconds())}`; };
+  const rip   = () => ips[Math.floor(Math.random()*ips.length)];
+  const rh    = () => hosts[Math.floor(Math.random()*hosts.length)];
+  const rm    = () => macs[Math.floor(Math.random()*macs.length)];
+  const rb    = (a,b) => Math.floor(Math.random()*(b-a)+a);
+
+  for(let i=0;i<75;i++){
+    const t=time(); let line; const r=Math.random();
+    if(r<.42){
+      const bytes=rb(64,1500); const h=rh();
+      if(!hostnames.includes(h)) hostnames.push(h);
+      line=`[${t}] [${iface}] TCP | ${bytes} bytes | ${rm()} -> ${rm()} | 172.26.62.188:${rb(30000,65000)} -> ${h}:${[443,80,22][rb(0,3)]} [Flags: ${['S','SA','A','PA','FA'][rb(0,5)]}, TTL:64]`;
+      stats.TCP.p++; stats.TCP.b+=bytes;
+    } else if(r<.65){
+      const bytes=rb(64,512); const h=rh();
+      if(!hostnames.includes(h)) hostnames.push(h);
+      line=`[${t}] [${iface}] UDP | ${bytes} bytes | ${rm()} -> ${rm()} | 172.26.62.188:${rb(30000,65000)} -> ${h}:${[53,443,123][rb(0,3)]} [TTL:64]`;
+      stats.UDP.p++; stats.UDP.b+=bytes;
+    } else if(r<.82){
+      const rtt=(Math.random()*100+8).toFixed(2);
+      const bytes=rb(64,128); rttSamples.push(parseFloat(rtt));
+      line=`[${t}] [${iface}] ICMP | ${bytes} bytes | ${rm()} -> ${rm()} | Type 0 | RTT: ${rtt} ms (TTL:64)`;
+      stats.ICMP.p++; stats.ICMP.b+=bytes;
+    } else if(r<.93){
+      const bytes=rb(42,60);
+      line=`[${t}] [${iface}] ARP | ${bytes} bytes | ${rm()} -> ${rm()} | Request: ${rip()} -> 172.26.62.188`;
+      stats.ARP.p++; stats.ARP.b+=bytes;
+    } else {
+      const bytes=rb(64,200);
+      line=`[${t}] [${iface}] UNKNOWN | ${bytes} bytes | ${rm()} -> ${rm()} | Ether / IPv6 / ...`;
+      stats.UNKNOWN.p++; stats.UNKNOWN.b+=bytes;
+    }
+    allPackets.push(line);
+  }
+
+  // port scan sim
+  const scanIp='10.0.0.99';
+  for(let i=0;i<16;i++){
+    const bytes=rb(40,60);
+    allPackets.push(`[${time()}] [${iface}] TCP | ${bytes} bytes | de:ad:be:ef:00:01 -> ${rm()} | ${scanIp}:${rb(30000,60000)} -> 172.26.62.188:${i+1} [Flags: S, TTL:128]`);
+    stats.TCP.p++; stats.TCP.b+=bytes;
+  }
+  const al=`[ALERTA] possivel port scan — ${scanIp} tentou 16 portas distintas`;
+  alerts.push(al); allPackets.push(al);
+
+  filtrarLog();
+  atualizarStats();
+}
+
+function limparTudo(){
+  allPackets=[]; alerts=[]; rttSamples=[]; hostnames=[];
+  stats={TCP:{p:0,b:0},UDP:{p:0,b:0},ICMP:{p:0,b:0},ARP:{p:0,b:0},UNKNOWN:{p:0,b:0}};
+  document.getElementById('search').value='';
+  document.getElementById('cmd-block').classList.remove('show');
+  document.getElementById('log').innerHTML='<span class="log-empty">sem pacotes.</span>';
+  document.getElementById('host-list').innerHTML='<div class="host-empty">aguardando dados…</div>';
+  document.getElementById('alert-list').innerHTML='<div class="no-alerts">nenhum alerta detetado</div>';
+  document.getElementById('s-rtt').textContent='—';
+  document.getElementById('rtt-unit').textContent='';
+  document.getElementById('rtt-min').textContent='—';
+  document.getElementById('rtt-max').textContent='—';
+  document.getElementById('rtt-samples').textContent='0 amostras';
+  document.getElementById('h-pkts').textContent='0';
+  document.getElementById('h-debito').textContent='—';
+  document.getElementById('status-dot').classList.remove('on');
+  drawGauge(0,0);
+  PROTOS.forEach(k=>{
+    const bar=document.getElementById('bar-'+k.toLowerCase());
+    const info=document.getElementById('info-'+k.toLowerCase());
+    if(bar)  bar.style.width='0%';
+    if(info) info.textContent='0 pkts · 0%';
+  });
+  ['s-pkts','s-bytes','s-alerts'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.textContent = id==='s-bytes'?'0.00':'0';
+  });
+}
+
+function buildRelatorio(){
+  const totalP=PROTOS.reduce((a,k)=>a+stats[k].p,0);
+  const totalB=PROTOS.reduce((a,k)=>a+stats[k].b,0);
+  const rmed=rttSamples.length?(rttSamples.reduce((a,b)=>a+b,0)/rttSamples.length).toFixed(2):'N/A';
+  const rmin=rttSamples.length?Math.min(...rttSamples).toFixed(2):'N/A';
+  const rmax=rttSamples.length?Math.max(...rttSamples).toFixed(2):'N/A';
+  let r=`PACKET SNIFFER — RELATÓRIO DE CAPTURA\n${'='.repeat(52)}\n`;
+  r+=`Data/hora : ${new Date().toLocaleString('pt-PT')}\n`;
+  r+=`Total pacotes : ${totalP}\nTotal bytes   : ${totalB} B  (${(totalB/1024).toFixed(2)} KB)\n\n`;
+  r+=`DISTRIBUIÇÃO\n${'-'.repeat(52)}\n`;
+  PROTOS.forEach(k=>{ if(stats[k].p>0){ const pct=totalP?((stats[k].p/totalP)*100).toFixed(1):0; r+=`${k.padEnd(10)} ${String(stats[k].p).padStart(6)} pkts  ${String(pct).padStart(5)}%   ${stats[k].b} B\n`; }});
+  if(rttSamples.length) r+=`\nRTT ICMP\n${'-'.repeat(52)}\nAmostras: ${rttSamples.length}  |  Mín: ${rmin} ms  |  Máx: ${rmax} ms  |  Média: ${rmed} ms\n`;
+  if(hostnames.length){ r+=`\nTOP HOSTNAMES\n${'-'.repeat(52)}\n`; hostnames.forEach(h=>r+=`→ ${h}\n`); }
+  if(alerts.length){ r+=`\nALERTAS\n${'-'.repeat(52)}\n`; alerts.forEach(a=>r+=`${a}\n`); }
+  r+=`\nREGISTO COMPLETO (${allPackets.length} linhas)\n${'-'.repeat(52)}\n`;
+  allPackets.forEach(l=>r+=`${l}\n`);
+  return r;
+}
+
+function dl(c,n,t){ const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([c],{type:t})); a.download=n; a.click(); }
+function exportarTxt(){ if(!allPackets.length){alert('Sem pacotes.');return;} dl(allPackets.join('\n'),'captura.txt','text/plain'); }
+function exportarCsv(){
+  if(!allPackets.length){alert('Sem pacotes.');return;}
+  const hdr='hora,interface,protocolo,bytes,mac_src,mac_dst,info\n';
+  const rows=allPackets.filter(l=>!l.startsWith('[ALERTA]')).map(l=>{
+    const m=l.match(/\[(\d+:\d+:\d+)\] \[(\w+)\] (\w+) \| (\d+) bytes \| ([\w:]+) -> ([\w:]+) \| (.*)/);
+    if(!m) return '';
+    return `"${m[1]}","${m[2]}","${m[3]}","${m[4]}","${m[5]}","${m[6]}","${m[7].replace(/"/g,'""')}"`;
+  }).filter(Boolean);
+  dl(hdr+rows.join('\n'),'captura.csv','text/csv');
+}
+function exportarRelatorio(){ if(!allPackets.length){alert('Sem dados.');return;} dl(buildRelatorio(),'relatorio_captura.txt','text/plain'); }
+</script>
+</body>
+</html>
