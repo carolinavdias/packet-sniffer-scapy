@@ -925,15 +925,122 @@ def _menu_guardar():
     guardar_trafico_ficheiro(caminho or "trafico.txt")
 
 
+# ===================================================================
+# NOVA FUNÇÃO — exportar_relatorio
+# Escreve o relatório completo (igual ao print_stats) num ficheiro
+# de texto simples, sem códigos de cor ANSI.
+# ===================================================================
+def exportar_relatorio(caminho="relatorio.txt"):
+    """
+    Exporta o relatório de captura para um ficheiro .txt legível,
+    sem códigos de cor ANSI.
+
+    Inclui:
+      - Data/hora de geração
+      - Duração, total de pacotes, bytes e débito
+      - Tabela por protocolo com percentagens e barra ASCII
+      - RTT ICMP (se existir)
+      - Alertas de segurança (se existirem)
+      - Top 5 hostnames resolvidos (se existirem)
+    """
+    if not start_time:
+        print(f"  {_Y}[!] Ainda não foi feita nenhuma captura.{_R}")
+        return
+
+    total_pkts  = sum(v["pacotes"] for v in stats.values())
+    total_bytes = sum(v["bytes"]   for v in stats.values())
+    duracao     = datetime.datetime.now() - start_time
+    segundos    = duracao.total_seconds()
+    agora       = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    try:
+        with open(caminho, "w", encoding="utf-8") as f:
+
+            # --- cabeçalho ---
+            f.write("=" * 62 + "\n")
+            f.write("  PACKET SNIFFER  ·  RELATÓRIO DE CAPTURA\n")
+            f.write(f"  Gerado em : {agora}\n")
+            f.write("=" * 62 + "\n\n")
+
+            # --- resumo geral ---
+            f.write(f"  Duração   : {str(duracao).split('.')[0]}\n")
+            f.write(f"  Pacotes   : {total_pkts}\n")
+            f.write(f"  Bytes     : {total_bytes} B  ({total_bytes/1024:.2f} KB)\n")
+            if segundos > 0:
+                f.write(f"  Débito    : {total_bytes/segundos:.1f} B/s\n")
+            f.write("\n" + "-" * 62 + "\n")
+
+            # --- tabela por protocolo ---
+            f.write(f"  {'PROTO':<10} {'PKTS':>6}  {'%':>5}   {'BYTES':>10}  {'%':>5}   DISTRIBUIÇÃO\n")
+            f.write("-" * 62 + "\n")
+
+            for proto, dados in sorted(stats.items(), key=lambda x: x[1]["pacotes"], reverse=True):
+                if dados["pacotes"] == 0:
+                    continue
+                pct_pkts  = (dados["pacotes"] / total_pkts  * 100) if total_pkts  > 0 else 0
+                pct_bytes = (dados["bytes"]   / total_bytes * 100) if total_bytes > 0 else 0
+                filled    = int(pct_pkts / 5)
+                barra     = "#" * filled + "." * (20 - filled)   # ASCII puro, sem unicode
+                f.write(
+                    f"  {proto:<10} {dados['pacotes']:>6}  {pct_pkts:>4.1f}%"
+                    f"   {dados['bytes']:>10}  {pct_bytes:>4.1f}%   {barra}\n"
+                )
+
+            # --- RTT ICMP ---
+            if rtt_samples:
+                f.write("\n" + "-" * 62 + "\n")
+                f.write("  RTT MÉDIO (ICMP)\n")
+                f.write(f"  amostras  : {len(rtt_samples)}\n")
+                f.write(f"  mínimo    : {min(rtt_samples):.2f} ms\n")
+                f.write(f"  máximo    : {max(rtt_samples):.2f} ms\n")
+                f.write(f"  média     : {sum(rtt_samples)/len(rtt_samples):.2f} ms\n")
+
+            # --- alertas de segurança ---
+            if alertas:
+                f.write("\n" + "-" * 62 + "\n")
+                f.write("  ALERTAS DE SEGURANÇA DETETADOS\n")
+                for a in alertas:
+                    f.write(f"  {a}\n")
+
+            # --- top hostnames ---
+            if dns_cache:
+                hostname_counts = {}
+                for ip, hostname in dns_cache.items():
+                    if hostname != ip:
+                        hostname_counts[hostname] = hostname_counts.get(hostname, 0) + 1
+                if hostname_counts:
+                    top = sorted(hostname_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+                    f.write("\n" + "-" * 62 + "\n")
+                    f.write("  TOP HOSTNAMES RESOLVIDOS\n")
+                    for hostname, _ in top:
+                        f.write(f"  -> {hostname}\n")
+
+            f.write("\n" + "=" * 62 + "\n")
+
+        print(f"  {_G}[✓] Relatório exportado para '{caminho}'{_R}")
+
+    except OSError as e:
+        print(f"  {_RE}[!] Erro ao escrever ficheiro: {e}{_R}")
+
+
+def _menu_exportar_relatorio():
+    if not start_time:
+        print(f"  {_Y}[!] Ainda não foi feita nenhuma captura.{_R}")
+        return
+    caminho = input(f"  Nome do ficheiro [{_D}enter = relatorio.txt{_R}]: ").strip()
+    exportar_relatorio(caminho or "relatorio.txt")
+
+
 def menu():
     """Loop principal do menu interativo."""
     opcoes = {
-        "1": ("Iniciar captura",          _menu_iniciar_captura),
-        "2": ("Parar captura",            _menu_parar_captura),
-        "3": ("Ver tráfego com filtros",  _menu_ver_filtros),
-        "4": ("Guardar tráfego em .txt",  _menu_guardar),
-        "5": ("Ver estatísticas",         print_stats),
-        "0": ("Sair",                     None),
+        "1": ("Iniciar captura",               _menu_iniciar_captura),
+        "2": ("Parar captura",                 _menu_parar_captura),
+        "3": ("Ver tráfego com filtros",       _menu_ver_filtros),
+        "4": ("Guardar tráfego em .txt",       _menu_guardar),
+        "5": ("Ver estatísticas",              print_stats),
+        "6": ("Exportar relatório para .txt",  _menu_exportar_relatorio),
+        "0": ("Sair",                          None),
     }
 
     while True:
@@ -965,4 +1072,3 @@ def menu():
 
 if __name__ == "__main__":
     menu()
-
