@@ -28,20 +28,11 @@ scan_tracker  = {}  #{ip: {portas tentadas}}
 icmp_tracker  = {}  #{ip: [timestamps]}
 alertas       = []  #lista de alertas gerados durante a sessão
 
-# -------------------------------------------------------------------
-# NOVO: lista global onde todos os pacotes ficam guardados em memória
-# cada entrada é um dicionário com os campos extraídos do pacote
-# -------------------------------------------------------------------
+#lista global onde todos os pacotes ficam guardados em memoria
 trafico_capturado = []
 
-# -------------------------------------------------------------------
-# NOVO: hashtable que organiza os pacotes por chaves de pesquisa
-# estrutura:  { "proto":   { "TCP": [...], "UDP": [...], ... },
-#               "src_ip":  { "192.168.1.1": [...], ... },
-#               "dst_ip":  { "8.8.8.8": [...], ... },
-#               "src_port":{ "443": [...], ... },
-#               "dst_port":{ "80":  [...], ... } }
-# -------------------------------------------------------------------
+#hashtable para pesquisa rapida pos-captura
+#indexa pacotes por proto, src_ip, dst_ip, src_port, dst_port
 hashtable = {
     "proto":    {},
     "src_ip":   {},
@@ -50,9 +41,26 @@ hashtable = {
     "dst_port": {},
 }
 
+#OPCIONAL 7: mapping de portas conhecidas para servicos
+#mostra :443 (HTTPS) em vez de so :443 no output
+PORT_SERVICES = {
+    20: "FTP-data",   21: "FTP",       22: "SSH",       23: "Telnet",
+    25: "SMTP",       53: "DNS",       67: "DHCP-srv",  68: "DHCP-cli",
+    80: "HTTP",       110: "POP3",     123: "NTP",      143: "IMAP",
+    443: "HTTPS",     465: "SMTPS",    587: "SMTP-sub",
+    993: "IMAPS",     995: "POP3S",    3306: "MySQL",   5432: "PostgreSQL",
+    5353: "mDNS",     8080: "HTTP-alt", 8443: "HTTPS-alt"
+}
+
+
+def porta_servico(porta):
+    #devolve o nome do servico se a porta for conhecida
+    servico = PORT_SERVICES.get(porta)
+    return f" ({servico})" if servico else ""
+
 
 def resolver_hostname(ip):
-    #devolve da cache se já foi resolvido antes
+    #devolve da cache se ja foi resolvido antes
     if ip in dns_cache:
         return dns_cache[ip]
     try:
@@ -67,7 +75,7 @@ def resolver_hostname(ip):
 
 
 def verificar_anomalias(pkt, src_ip, proto, args):
-    #OPC5: deteta port scan; um IP a tentar muitas portas diferentes em pouco tempo
+    #OPC5: deteta port scan - um IP a tentar muitas portas diferentes
     if proto == "TCP" and TCP in pkt:
         porta_dst = pkt[TCP].dport
         if src_ip not in scan_tracker:
@@ -75,13 +83,13 @@ def verificar_anomalias(pkt, src_ip, proto, args):
         scan_tracker[src_ip].add(porta_dst)
         #alerta se um IP tentou mais de 15 portas distintas
         if len(scan_tracker[src_ip]) == 15:
-            alerta = f"[ALERTA] possivel port scan - {src_ip} tentou {len(scan_tracker[src_ip])} portas distintas"
+            alerta = f"[ALERTA] possível port scan - {src_ip} tentou {len(scan_tracker[src_ip])} portas distintas"
             if alerta not in alertas:
                 alertas.append(alerta)
                 if args.live:
                     print(f"\033[91m{alerta}\033[0m")
 
-    #OPC5: deteta ICMP flood; mais de 20 pings por segundo do mesmo IP
+    #OPC5: deteta ICMP flood - mais de 20 pings por segundo do mesmo IP
     if proto == "ICMP" and ICMP in pkt and pkt[ICMP].type == 8:
         agora = pkt.time
         if src_ip not in icmp_tracker:
@@ -97,44 +105,14 @@ def verificar_anomalias(pkt, src_ip, proto, args):
                     print(f"\033[91m{alerta}\033[0m")
 
 
-# ===================================================================
-# NOVA FUNÇÃO 1 — guardar_trafico
-# Recebe o dicionário com os dados já extraídos do pacote e guarda-o
-# na lista global trafico_capturado.
-# ===================================================================
 def guardar_trafico(dados_pkt):
-    """
-    Guarda um pacote (representado como dicionário) na lista global
-    trafico_capturado e indexa-o na hashtable para pesquisa rápida.
-
-    Campos esperados no dicionário dados_pkt:
-        timestamp  – hora de captura (str)
-        proto      – protocolo: TCP / UDP / ICMP / ARP / UNKNOWN
-        tamanho    – tamanho do pacote em bytes (int)
-        src_mac    – MAC de origem (str)
-        dst_mac    – MAC de destino (str)
-        src_ip     – IP de origem  (str ou None)
-        dst_ip     – IP de destino (str ou None)
-        src_port   – porta de origem  (int ou None)
-        dst_port   – porta de destino (int ou None)
-        info       – linha de resumo já formatada (str)
-    """
+    #guarda o pacote na lista global e indexa-o na hashtable
     trafico_capturado.append(dados_pkt)
     indexar_na_hashtable(dados_pkt)
 
 
-# ===================================================================
-# NOVA FUNÇÃO 2 — indexar_na_hashtable  (auxiliar interna)
-# Insere o dicionário do pacote em todas as entradas relevantes
-# da hashtable, usando os campos como chave.
-# ===================================================================
 def indexar_na_hashtable(dados_pkt):
-    """
-    Indexa dados_pkt na hashtable global por:
-      proto / src_ip / dst_ip / src_port / dst_port
-    Cada chave aponta para uma lista de pacotes — colisões são
-    tratadas naturalmente ao fazer append nessa lista.
-    """
+    #insere o pacote em todas as categorias relevantes da hashtable
     def _inserir(categoria, chave):
         if chave is None:
             return
@@ -150,60 +128,22 @@ def indexar_na_hashtable(dados_pkt):
     _inserir("dst_port", dados_pkt.get("dst_port"))
 
 
-# ===================================================================
-# NOVA FUNÇÃO 3 — filtrar_hashtable
-# Permite pesquisar pacotes na hashtable combinando vários filtros.
-# Devolve uma lista de dicionários que satisfazem TODOS os filtros.
-# ===================================================================
 def filtrar_hashtable(proto=None, src_ip=None, dst_ip=None,
                       src_port=None, dst_port=None,
                       tamanho_min=None, tamanho_max=None,
                       hora_inicio=None, hora_fim=None):
-    """
-    Filtra os pacotes guardados na hashtable.
+    #pesquisa pacotes na hashtable combinando varios filtros
+    #devolve lista de pacotes que passam em todos os filtros
 
-    Parâmetros (todos opcionais — omitir significa "sem restrição"):
-        proto       – ex: "TCP", "UDP", "ICMP", "ARP"
-        src_ip      – IP de origem  ex: "192.168.1.10"
-        dst_ip      – IP de destino ex: "8.8.8.8"
-        src_port    – porta de origem  (int ou str)
-        dst_port    – porta de destino (int ou str)
-        tamanho_min – tamanho mínimo em bytes (int)
-        tamanho_max – tamanho máximo em bytes (int)
-        hora_inicio – hora mínima no formato "HH:MM:SS" (str)
-        hora_fim    – hora máxima no formato "HH:MM:SS" (str)
-
-    Devolve:
-        lista de dicionários de pacotes que passam em todos os filtros.
-
-    Exemplos de uso:
-        # todos os pacotes TCP para a porta 443
-        resultados = filtrar_hashtable(proto="TCP", dst_port=443)
-
-        # pacotes UDP entre dois IPs
-        resultados = filtrar_hashtable(proto="UDP",
-                                       src_ip="192.168.1.5",
-                                       dst_ip="1.1.1.1")
-
-        # pacotes grandes capturados numa janela de tempo
-        resultados = filtrar_hashtable(tamanho_min=1000,
-                                       hora_inicio="10:00:00",
-                                       hora_fim="10:05:00")
-    """
-
-    # --- ponto de partida: conjunto de candidatos ---
-    # Se um filtro indexado foi dado, começa pelo conjunto mais pequeno
-    # (interseção progressiva); caso contrário usa toda a lista.
-
-    candidatos = None  # None significa "ainda não filtrámos nada"
+    candidatos = None  #None = ainda nao filtramos nada
 
     def intersectar(categoria, chave):
+        #vai cortando a lista de candidatos a cada filtro novo
         nonlocal candidatos
         if chave is None:
             return
         chave = str(chave)
         bucket = hashtable[categoria].get(chave, [])
-        # usa id() para comparar identidade dos dicionários
         ids_bucket = {id(p) for p in bucket}
         if candidatos is None:
             candidatos = [p for p in bucket]
@@ -216,11 +156,11 @@ def filtrar_hashtable(proto=None, src_ip=None, dst_ip=None,
     intersectar("src_port", src_port)
     intersectar("dst_port", dst_port)
 
-    # se nenhum filtro indexado foi dado, parte de tudo
+    #se nenhum filtro indexado foi dado, parte de tudo
     if candidatos is None:
         candidatos = list(trafico_capturado)
 
-    # --- filtros não indexados (tamanho e hora) ---
+    #filtros nao indexados (tamanho e hora) aplicados no fim
     resultado = []
     for pkt in candidatos:
         if tamanho_min is not None and pkt.get("tamanho", 0) < tamanho_min:
@@ -236,23 +176,8 @@ def filtrar_hashtable(proto=None, src_ip=None, dst_ip=None,
     return resultado
 
 
-# ===================================================================
-# NOVA FUNÇÃO — guardar_trafico_ficheiro
-# Escreve todo o conteúdo de trafico_capturado num ficheiro .txt
-# com cabeçalho, separadores e um resumo final.
-# ===================================================================
 def guardar_trafico_ficheiro(caminho="trafico.txt"):
-    """
-    Guarda todos os pacotes em trafico_capturado num ficheiro de texto.
-
-    Parâmetros:
-        caminho – nome/caminho do ficheiro de saída (default: trafico.txt)
-
-    Formato de cada linha:
-        [HH:MM:SS] PROTO | NNN bytes | src_ip:porta -> dst_ip:porta | info
-
-    No fim do ficheiro é escrito um pequeno resumo com totais por protocolo.
-    """
+    #escreve todos os pacotes capturados num .txt com cabeçalho e resumo
     if not trafico_capturado:
         print("  [!] Nenhum pacote para guardar.")
         return
@@ -260,7 +185,7 @@ def guardar_trafico_ficheiro(caminho="trafico.txt"):
     try:
         with open(caminho, "w", encoding="utf-8") as f:
 
-            # --- cabeçalho ---
+            #cabeçalho do ficheiro
             agora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             f.write("=" * 70 + "\n")
             f.write("  PACKET SNIFFER — REGISTO DE TRÁFEGO\n")
@@ -268,12 +193,12 @@ def guardar_trafico_ficheiro(caminho="trafico.txt"):
             f.write(f"  Total de pacotes: {len(trafico_capturado)}\n")
             f.write("=" * 70 + "\n\n")
 
-            # --- uma linha por pacote ---
+            #uma linha por pacote
             for pkt in trafico_capturado:
                 src = pkt.get("src_ip") or pkt.get("src_mac", "?")
                 dst = pkt.get("dst_ip") or pkt.get("dst_mac", "?")
 
-                # acrescenta porta se existir
+                #acrescenta porta se existir
                 if pkt.get("src_port"):
                     src = f"{src}:{pkt['src_port']}"
                 if pkt.get("dst_port"):
@@ -288,7 +213,7 @@ def guardar_trafico_ficheiro(caminho="trafico.txt"):
                 )
                 f.write(linha)
 
-            # --- resumo final ---
+            #resumo por protocolo no fim
             f.write("\n" + "=" * 70 + "\n")
             f.write("  RESUMO POR PROTOCOLO\n")
             f.write("-" * 70 + "\n")
@@ -320,6 +245,7 @@ def guardar_trafico_ficheiro(caminho="trafico.txt"):
 
 
 def print_stats():
+    #cores ANSI para dar um ar mais vivo ao terminal
     RESET  = "\033[0m"
     BOLD   = "\033[1m"
     CYAN   = "\033[96m"
@@ -343,6 +269,7 @@ def print_stats():
     duracao     = datetime.datetime.now() - start_time
     segundos    = duracao.total_seconds()
 
+    #cabeçalho do relatório
     print(f"\n{CYAN}{'═' * 62}{RESET}")
     print(f"{BOLD}{CYAN}  >>>  PACKET SNIFFER  ·  RELATÓRIO DE CAPTURA  <<<{RESET}")
     print(f"{CYAN}{'═' * 62}{RESET}")
@@ -353,9 +280,11 @@ def print_stats():
         print(f"  {DIM}【 débito    {RESET}{WHITE}{total_bytes/segundos:.1f} B/s{RESET}")
     print(f"{CYAN}{'─' * 62}{RESET}")
 
+    #cabeçalho da tabela
     print(f"  {BOLD}{'PROTO':<10} {'PKTS':>6}  {'%':>5}   {'BYTES':>10}  {'%':>5}   DISTRIBUIÇÃO{RESET}")
     print(f"{DIM}{'─' * 62}{RESET}")
 
+    #linha por protocolo com barra proporcional
     for proto, dados in sorted(stats.items(), key=lambda x: x[1]["pacotes"], reverse=True):
         if dados["pacotes"] == 0:
             continue
@@ -382,11 +311,11 @@ def print_stats():
         for a in alertas:
             print(f"  {RED}{a}{RESET}")
 
-    #OPC4: top 5 hostnames resolvidos mais vistos
+    #OPC4: top 5 hostnames mais vistos
     if dns_cache:
         hostname_counts = {}
         for ip, hostname in dns_cache.items():
-            if hostname != ip:
+            if hostname != ip:  #so conta IPs que foram resolvidos para nome
                 hostname_counts[hostname] = hostname_counts.get(hostname, 0) + 1
         if hostname_counts:
             top = sorted(hostname_counts.items(), key=lambda x: x[1], reverse=True)[:5]
@@ -399,7 +328,7 @@ def print_stats():
 
 
 def plot_stats():
-    #OPC3: gráfico opcional (só corre se matplotlib estiver instalado)
+    #OPC3: grafico opcional, so corre se matplotlib estiver instalado
     try:
         import matplotlib.pyplot as plt
         import matplotlib.patches as patches
@@ -434,6 +363,7 @@ def plot_stats():
     fig.suptitle("Packet Sniffer  ·  Relatório de Captura",
                  color="white", fontsize=13, fontweight="bold")
 
+    #barras verticais com pacotes por protocolo
     bars = ax1.bar(protocolos, pacotes, color=bar_cores, width=0.5, zorder=3)
     ax1.set_facecolor("#161B22")
     ax1.set_title("Pacotes por Protocolo", color="white", pad=10)
@@ -448,6 +378,7 @@ def plot_stats():
                  f"{pct:.1f}%", ha="center", va="bottom",
                  color="white", fontsize=9, fontweight="bold")
 
+    #barras horizontais com bytes por protocolo
     y_pos = range(len(protocolos))
     hbars = ax2.barh(list(y_pos), pct_bytes, color=bar_cores, height=0.5, zorder=3)
     ax2.set_facecolor("#161B22")
@@ -475,6 +406,7 @@ def plot_stats():
                 facecolor="#0D1117")
     print(f"  [->] gráfico guardado em captura_stats.png")
 
+    #tenta abrir o ficheiro automaticamente
     import subprocess
     try:
         subprocess.Popen(["xdg-open", "captura_stats.png"])
@@ -483,7 +415,7 @@ def plot_stats():
 
 
 def process_packet(pkt, args):
-    # 1. FILTROS DE EXECUÇÃO
+    #1. filtros de execução - rejeita pacotes que nao interessam
     if args.protocol:
         p_lower = args.protocol.lower()
         if p_lower == "icmp" and ICMP not in pkt: return
@@ -503,13 +435,13 @@ def process_packet(pkt, args):
     proto = "UNKNOWN"
     info  = ""
 
-    # campos que vão para a hashtable
+    #campos que vao para a hashtable
     src_ip   = None
     dst_ip   = None
     src_port = None
     dst_port = None
 
-    # 2. PARSING
+    #2. parsing por protocolo
     if ARP in pkt:
         proto  = "ARP"
         op     = "Request" if pkt[ARP].op == 1 else "Reply"
@@ -523,10 +455,12 @@ def process_packet(pkt, args):
         if ICMP in pkt:
             proto = "ICMP"
             info  = f"Type {pkt[ICMP].type} (TTL:{ttl})"
-            #OPC2: cálculo de RTT
+            #OPC2: calculo de RTT
             if pkt[ICMP].type == 8:
+                #echo request: guarda o timestamp pelo IP de origem
                 icmp_pending[src_ip] = pkt.time
             elif pkt[ICMP].type == 0:
+                #echo reply: emparelha com o request e calcula o RTT
                 if dst_ip in icmp_pending:
                     rtt_ms = (pkt.time - icmp_pending.pop(dst_ip)) * 1000
                     rtt_samples.append(rtt_ms)
@@ -536,17 +470,17 @@ def process_packet(pkt, args):
             proto    = "TCP"
             src_port = pkt[TCP].sport
             dst_port = pkt[TCP].dport
-            #OPC4: resolve o hostname de destino
-            host  = resolver_hostname(dst_ip)
-            info  = f"{src_ip}:{src_port} -> {host}:{dst_port} [Flags: {pkt[TCP].flags}, TTL:{ttl}]"
+            #OPC4: resolve hostname / OPC7: identifica servico
+            host = resolver_hostname(dst_ip)
+            info = f"{src_ip}:{src_port} -> {host}:{dst_port}{porta_servico(dst_port)} [Flags: {pkt[TCP].flags}, TTL:{ttl}]"
 
         elif UDP in pkt:
             proto    = "UDP"
             src_port = pkt[UDP].sport
             dst_port = pkt[UDP].dport
-            #OPC4: resolve o hostname de destino
-            host  = resolver_hostname(dst_ip)
-            info  = f"{src_ip}:{src_port} -> {host}:{dst_port} [TTL:{ttl}]"
+            #OPC4: resolve hostname / OPC7: identifica servico
+            host = resolver_hostname(dst_ip)
+            info = f"{src_ip}:{src_port} -> {host}:{dst_port}{porta_servico(dst_port)} [TTL:{ttl}]"
 
         #OPC5: verifica anomalias em tempo real
         verificar_anomalias(pkt, src_ip, proto, args)
@@ -559,7 +493,7 @@ def process_packet(pkt, args):
         with open(args.log, "a") as f:
             f.write(summary_line + "\n")
 
-    #OPC1: atualiza contadores após processar o pacote
+    #OPC1: atualiza contadores apos processar o pacote
     if proto in stats:
         stats[proto]["pacotes"] += 1
         stats[proto]["bytes"]   += len(pkt)
@@ -567,7 +501,7 @@ def process_packet(pkt, args):
         stats["UNKNOWN"]["pacotes"] += 1
         stats["UNKNOWN"]["bytes"]   += len(pkt)
 
-    # NOVO: guarda o pacote na lista e indexa na hashtable
+    #guarda o pacote na lista global e indexa na hashtable
     dados_pkt = {
         "timestamp": time_now,
         "proto":     proto,
@@ -583,14 +517,11 @@ def process_packet(pkt, args):
     guardar_trafico(dados_pkt)
 
 
-# ===================================================================
-# NOVA FUNÇÃO — mostrar_filtrado
-# Usa filtrar_hashtable() e imprime os resultados no ecrã com cores.
-# ===================================================================
 def mostrar_filtrado(proto=None, src_ip=None, dst_ip=None,
                      src_port=None, dst_port=None,
                      tamanho_min=None, tamanho_max=None,
                      hora_inicio=None, hora_fim=None):
+    #usa filtrar_hashtable() e imprime os resultados com cores
     RESET  = "\033[0m"
     BOLD   = "\033[1m"
     CYAN   = "\033[96m"
@@ -615,7 +546,7 @@ def mostrar_filtrado(proto=None, src_ip=None, dst_ip=None,
         hora_inicio=hora_inicio, hora_fim=hora_fim,
     )
 
-    # cabeçalho com os filtros ativos
+    #cabeçalho com os filtros ativos
     filtros_ativos = {
         "proto": proto, "src_ip": src_ip, "dst_ip": dst_ip,
         "src_port": src_port, "dst_port": dst_port,
@@ -638,7 +569,7 @@ def mostrar_filtrado(proto=None, src_ip=None, dst_ip=None,
         print(f"{CYAN}{'═' * 70}{RESET}\n")
         return
 
-    # cabeçalho da tabela
+    #cabeçalho da tabela
     print(
         f"  {BOLD}"
         f"{'HORA':<10} {'PROTO':<7} {'BYTES':>6}  "
@@ -646,7 +577,7 @@ def mostrar_filtrado(proto=None, src_ip=None, dst_ip=None,
     )
     print(f"{DIM}{'─' * 70}{RESET}")
 
-    # uma linha por pacote
+    #uma linha por pacote
     for pkt in resultados:
         p   = pkt.get("proto", "UNKNOWN")
         cor = proto_cores.get(p, WHITE)
@@ -658,6 +589,7 @@ def mostrar_filtrado(proto=None, src_ip=None, dst_ip=None,
         if pkt.get("dst_port"):
             dst = f"{dst}:{pkt['dst_port']}"
 
+        #trunca strings longas para caber na tabela
         src  = src[:25]  if len(src)  > 25 else src
         dst  = dst[:25]  if len(dst)  > 25 else dst
         info = pkt.get("info", "")
@@ -671,7 +603,7 @@ def mostrar_filtrado(proto=None, src_ip=None, dst_ip=None,
             f" {DIM}{info}{RESET}"
         )
 
-    # rodapé com totais
+    #rodapé com totais
     total_bytes = sum(p.get("tamanho", 0) for p in resultados)
     print(f"{CYAN}{'─' * 70}{RESET}")
     print(f"  {DIM}total  {RESET}{WHITE}{len(resultados)} pacotes  /  {total_bytes} bytes  ({total_bytes/1024:.2f} KB){RESET}")
@@ -679,7 +611,7 @@ def mostrar_filtrado(proto=None, src_ip=None, dst_ip=None,
 
 
 def main():
-    #OPC1: registar tempo de início
+    #OPC1: registar tempo de inicio
     global start_time
     start_time = datetime.datetime.now()
 
@@ -690,13 +622,16 @@ def main():
     parser.add_argument("--mac",             help="Filtra por endereço MAC")
     parser.add_argument("-l", "--log",       help="Ativa modo log e define ficheiro de saída")
     parser.add_argument("--live",            action="store_true", help="Ativa impressão em tempo real na consola")
-    parser.add_argument("--graph",           action="store_true", help="Gera grafico no final (requer matplotlib)")
+    parser.add_argument("--graph",           action="store_true", help="Gera gráfico no final (requer matplotlib)")
     parser.add_argument("--duration",        type=int, default=0,
                         help="Para a captura automaticamente após N segundos (ex: --duration 30)")
     parser.add_argument("--save",            nargs="?", const="trafico.txt", metavar="FICHEIRO",
                         help="Guarda o tráfego capturado num ficheiro .txt (default: trafico.txt)")
+    #OPC8: filtro BPF nativo do Scapy estilo tcpdump/Wireshark
+    parser.add_argument("--bpf",             metavar="EXPRESSAO",
+                        help="Filtro BPF estilo tcpdump (ex: 'tcp port 443', 'icmp', 'host 8.8.8.8')")
 
-    # filtros pós-captura aplicados sobre a hashtable
+    #filtros pos-captura aplicados sobre a hashtable
     fg = parser.add_argument_group("filtros pós-captura (aplicados no fim sobre a hashtable)")
     fg.add_argument("--fproto",  metavar="PROTO",    help="Filtra resultado por protocolo  ex: TCP")
     fg.add_argument("--fsrc",    metavar="IP",       help="Filtra por IP de origem         ex: 192.168.1.1")
@@ -715,9 +650,13 @@ def main():
 
     print(f"A capturar em {args.interface or 'todas as interfaces'}... (Ctrl+C para parar)")
 
-    #OPC6: informa o utilizador se a captura tem duração limitada
+    #OPC6: avisa se a captura tem duração limitada
     if args.duration > 0:
         print(f"  [→] captura limitada a {args.duration} segundos")
+
+    #OPC8: avisa se um filtro BPF foi aplicado
+    if args.bpf:
+        print(f"  [→] filtro BPF ativo: {args.bpf}")
 
     stop = {"flag": False}
 
@@ -726,7 +665,7 @@ def main():
 
     signal.signal(signal.SIGINT, handle_sigint)
 
-    #OPC6: stop_filter verifica tanto o Ctrl+C como o tempo limite
+    #OPC6: stop_filter para o Ctrl+C ou o tempo limite
     def deve_parar(pkt):
         if stop["flag"]:
             return True
@@ -737,23 +676,24 @@ def main():
         return False
 
     try:
+        #OPC8: passa o filtro BPF ao scapy via argumento filter
         sniff(iface=args.interface, prn=lambda p: process_packet(p, args),
-              store=0, stop_filter=deve_parar)
+              store=0, stop_filter=deve_parar, filter=args.bpf)
     except Exception as e:
         print(f"[!] Erro na captura: {e}")
 
     print("\n[!] Captura terminada.")
     print_stats()
 
-    #OPC3: gráfico só se o utilizador pedir explicitamente com --graph
+    #OPC3: grafico so se o utilizador pedir explicitamente
     if args.graph:
         plot_stats()
 
-    # guarda tráfego em ficheiro .txt se --save foi pedido
+    #guarda trafego em ficheiro se --save foi pedido
     if args.save:
         guardar_trafico_ficheiro(args.save)
 
-    # mostra filtro pós-captura se pelo menos um filtro foi dado
+    #mostra filtro pos-captura se pelo menos um filtro foi dado
     filtros_dados = any([
         args.fproto, args.fsrc, args.fdst, args.fsport, args.fdport,
         args.fmin, args.fmax, args.fhi, args.fhf
@@ -771,11 +711,10 @@ def main():
             hora_fim    = args.fhf,
         )
 
-# ===================================================================
-# MENU INTERATIVO EM LINHA DE COMANDOS
-# ===================================================================
 
-# cores reutilizadas no menu
+#menu interativo em linha de comandos
+
+#cores reutilizadas no menu
 _R  = "\033[0m"
 _B  = "\033[1m"
 _C  = "\033[96m"
@@ -785,7 +724,7 @@ _RE = "\033[91m"
 _D  = "\033[2m"
 _W  = "\033[97m"
 
-# estado partilhado da captura em curso (usado pela thread de sniff)
+#estado partilhado da captura em curso (usado pela thread de sniff)
 _captura_a_correr = {"flag": False}
 
 
@@ -801,7 +740,7 @@ def _cabecalho_menu():
 
 
 def _menu_iniciar_captura():
-    """Pede os parâmetros e arranca a captura numa thread separada."""
+    #pede os parametros e arranca a captura numa thread separada
     import threading
 
     if _captura_a_correr["flag"]:
@@ -809,16 +748,18 @@ def _menu_iniciar_captura():
         return
 
     print(f"\n{_C}── INICIAR CAPTURA ──{_R}")
-    iface    = input(f"  Interface  [{_D}enter = todas{_R}]: ").strip() or None
-    proto    = input(f"  Protocolo  [{_D}tcp/udp/icmp/arp ou enter{_R}]: ").strip() or None
+    iface     = input(f"  Interface  [{_D}enter = todas{_R}]: ").strip() or None
+    proto     = input(f"  Protocolo  [{_D}tcp/udp/icmp/arp ou enter{_R}]: ").strip() or None
     filtro_ip = input(f"  Filtrar IP [{_D}enter = todos{_R}]: ").strip() or None
-    dur_str  = input(f"  Duração    [{_D}segundos, enter = sem limite{_R}]: ").strip()
-    live_str = input(f"  Ver pacotes em tempo real? [{_D}s/N{_R}]: ").strip().lower()
+    #OPC8: pergunta filtro BPF tambem no menu interativo
+    bpf       = input(f"  Filtro BPF [{_D}ex: 'tcp port 443', enter = nenhum{_R}]: ").strip() or None
+    dur_str   = input(f"  Duração    [{_D}segundos, enter = sem limite{_R}]: ").strip()
+    live_str  = input(f"  Ver pacotes em tempo real? [{_D}s/N{_R}]: ").strip().lower()
 
     duracao = int(dur_str) if dur_str.isdigit() else 0
     live    = live_str == "s"
 
-    # reset ao estado global para nova sessão
+    #reset ao estado global para uma nova sessão
     global start_time
     for k in stats:
         stats[k]["pacotes"] = 0
@@ -834,7 +775,7 @@ def _menu_iniciar_captura():
     alertas.clear()
     start_time = datetime.datetime.now()
 
-    # objecto de args simplificado para reutilizar process_packet
+    #args simplificados para reutilizar o process_packet
     class FakeArgs:
         pass
     args         = FakeArgs()
@@ -858,8 +799,9 @@ def _menu_iniciar_captura():
                     return True
             return False
         try:
+            #OPC8: passa o filtro BPF ao scapy
             sniff(iface=iface, prn=lambda p: process_packet(p, args),
-                  store=0, stop_filter=deve_parar)
+                  store=0, stop_filter=deve_parar, filter=bpf)
         except Exception as e:
             print(f"\n  {_RE}[!] Erro na captura: {e}{_R}")
         finally:
@@ -868,7 +810,7 @@ def _menu_iniciar_captura():
 
     t = threading.Thread(target=_correr, daemon=True)
     t.start()
-    print(f"  {_G}[✓] Captura iniciada{_R}{' (duração: ' + str(duracao) + 's)' if duracao else ''}.")
+    print(f"  {_G}[✓] Captura iniciada{_R}{' (duração: ' + str(duracao) + 's)' if duracao else ''}{' | BPF: ' + bpf if bpf else ''}.")
 
 
 def _menu_parar_captura():
@@ -880,7 +822,7 @@ def _menu_parar_captura():
 
 
 def _menu_ver_filtros():
-    """Pede os filtros ao utilizador e chama mostrar_filtrado()."""
+    #pede os filtros ao utilizador e chama mostrar_filtrado()
     if not trafico_capturado:
         print(f"  {_Y}[!] Ainda não há pacotes capturados.{_R}")
         return
@@ -925,24 +867,8 @@ def _menu_guardar():
     guardar_trafico_ficheiro(caminho or "trafico.txt")
 
 
-# ===================================================================
-# NOVA FUNÇÃO — exportar_relatorio
-# Escreve o relatório completo (igual ao print_stats) num ficheiro
-# de texto simples, sem códigos de cor ANSI.
-# ===================================================================
 def exportar_relatorio(caminho="relatorio.txt"):
-    """
-    Exporta o relatório de captura para um ficheiro .txt legível,
-    sem códigos de cor ANSI.
-
-    Inclui:
-      - Data/hora de geração
-      - Duração, total de pacotes, bytes e débito
-      - Tabela por protocolo com percentagens e barra ASCII
-      - RTT ICMP (se existir)
-      - Alertas de segurança (se existirem)
-      - Top 5 hostnames resolvidos (se existirem)
-    """
+    #exporta o relatorio completo para um .txt sem codigos de cor ANSI
     if not start_time:
         print(f"  {_Y}[!] Ainda não foi feita nenhuma captura.{_R}")
         return
@@ -956,13 +882,13 @@ def exportar_relatorio(caminho="relatorio.txt"):
     try:
         with open(caminho, "w", encoding="utf-8") as f:
 
-            # --- cabeçalho ---
+            #cabeçalho
             f.write("=" * 62 + "\n")
             f.write("  PACKET SNIFFER  ·  RELATÓRIO DE CAPTURA\n")
             f.write(f"  Gerado em : {agora}\n")
             f.write("=" * 62 + "\n\n")
 
-            # --- resumo geral ---
+            #resumo geral
             f.write(f"  Duração   : {str(duracao).split('.')[0]}\n")
             f.write(f"  Pacotes   : {total_pkts}\n")
             f.write(f"  Bytes     : {total_bytes} B  ({total_bytes/1024:.2f} KB)\n")
@@ -970,7 +896,7 @@ def exportar_relatorio(caminho="relatorio.txt"):
                 f.write(f"  Débito    : {total_bytes/segundos:.1f} B/s\n")
             f.write("\n" + "-" * 62 + "\n")
 
-            # --- tabela por protocolo ---
+            #tabela por protocolo
             f.write(f"  {'PROTO':<10} {'PKTS':>6}  {'%':>5}   {'BYTES':>10}  {'%':>5}   DISTRIBUIÇÃO\n")
             f.write("-" * 62 + "\n")
 
@@ -980,13 +906,13 @@ def exportar_relatorio(caminho="relatorio.txt"):
                 pct_pkts  = (dados["pacotes"] / total_pkts  * 100) if total_pkts  > 0 else 0
                 pct_bytes = (dados["bytes"]   / total_bytes * 100) if total_bytes > 0 else 0
                 filled    = int(pct_pkts / 5)
-                barra     = "#" * filled + "." * (20 - filled)   # ASCII puro, sem unicode
+                barra     = "#" * filled + "." * (20 - filled)  #ASCII puro
                 f.write(
                     f"  {proto:<10} {dados['pacotes']:>6}  {pct_pkts:>4.1f}%"
                     f"   {dados['bytes']:>10}  {pct_bytes:>4.1f}%   {barra}\n"
                 )
 
-            # --- RTT ICMP ---
+            #RTT ICMP
             if rtt_samples:
                 f.write("\n" + "-" * 62 + "\n")
                 f.write("  RTT MÉDIO (ICMP)\n")
@@ -995,14 +921,14 @@ def exportar_relatorio(caminho="relatorio.txt"):
                 f.write(f"  máximo    : {max(rtt_samples):.2f} ms\n")
                 f.write(f"  média     : {sum(rtt_samples)/len(rtt_samples):.2f} ms\n")
 
-            # --- alertas de segurança ---
+            #alertas de segurança
             if alertas:
                 f.write("\n" + "-" * 62 + "\n")
                 f.write("  ALERTAS DE SEGURANÇA DETETADOS\n")
                 for a in alertas:
                     f.write(f"  {a}\n")
 
-            # --- top hostnames ---
+            #top hostnames
             if dns_cache:
                 hostname_counts = {}
                 for ip, hostname in dns_cache.items():
@@ -1032,7 +958,7 @@ def _menu_exportar_relatorio():
 
 
 def menu():
-    """Loop principal do menu interativo."""
+    #loop principal do menu interativo
     opcoes = {
         "1": ("Iniciar captura",               _menu_iniciar_captura),
         "2": ("Parar captura",                 _menu_parar_captura),
@@ -1072,7 +998,7 @@ def menu():
 
 if __name__ == "__main__":
     import sys
-    #se foram passados argumentos usa o modo linha de comandos diretamente
+    #se foram passados argumentos usa o modo linha de comandos
     #caso contrario abre o menu interativo
     if len(sys.argv) > 1:
         main()

@@ -1,2 +1,13 @@
 captura.txt
 captura_stats.png
+
+# outputs gerados pelo sniffer
+captura_*.txt
+trafico_*.txt
+relatorio.txt
+*.pcap
+*.pcapng
+
+# python
+__pycache__/
+*.pyc
