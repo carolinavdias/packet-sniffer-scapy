@@ -82,7 +82,7 @@ def verificar_anomalias(pkt, src_ip, proto, args):
             scan_tracker[src_ip] = set()
         scan_tracker[src_ip].add(porta_dst)
         #alerta se um IP tentou mais de 15 portas distintas
-        if len(scan_tracker[src_ip]) == 15:
+        if len(scan_tracker[src_ip]) >= 15:
             alerta = f"[ALERTA] possível port scan - {src_ip} tentou {len(scan_tracker[src_ip])} portas distintas"
             if alerta not in alertas:
                 alertas.append(alerta)
@@ -245,7 +245,7 @@ def guardar_trafico_ficheiro(caminho="trafico.txt"):
 
 
 def print_stats():
-    #cores ANSI para dar um ar mais vivo ao terminal
+    #cores ANSI para dar um ar mais vivo ao terminal :)
     RESET  = "\033[0m"
     BOLD   = "\033[1m"
     CYAN   = "\033[96m"
@@ -328,7 +328,7 @@ def print_stats():
 
 
 def plot_stats():
-    #OPC3: grafico opcional, so corre se matplotlib estiver instalado
+    #OPC3: grafico opcional, APENAS corre se matplotlib estiver instalado !!!!
     try:
         import matplotlib.pyplot as plt
         import matplotlib.patches as patches
