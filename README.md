@@ -1,112 +1,122 @@
 <div align="center">
 
-# 🌐 ᑭᗩᑕKET ᔕᑎIᖴᖴEᖇ
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/icon-dark.svg">
+  <img src="assets/icon-light.svg" height="110" alt="">
+</picture>
 
-### Trabalho Prático Nº2 - Redes de Computadores
-**Universidade do Minho · LEI · 2025/2026**
+<h1>𝙋𝙖𝙘𝙠𝙚𝙩 𝙎𝙣𝙞𝙛𝙛𝙚𝙧</h1>
+<h3>Live Network Traffic Analyser</h3>
 
-![Python](https://img.shields.io/badge/Python-3.8%2B-blue?style=for-the-badge&logo=python&logoColor=white)
-![Scapy](https://img.shields.io/badge/Scapy-2.x-green?style=for-the-badge)
-![License](https://img.shields.io/badge/Licença-Académica-orange?style=for-the-badge)
-![Opcionais](https://img.shields.io/badge/Opcionais%20Implementados-11-purple?style=for-the-badge)
+![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![Scapy](https://img.shields.io/badge/Scapy-1B3A57?style=for-the-badge)
+![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
 
-**Grupo 45 · PL4**
-
-[Ana Patrícia da Silva Machado](mailto:a111661@alunos.uminho.pt) · `a111661`  
-[Carolina Francisca Vieira Dias](mailto:a111179@alunos.uminho.pt) · `a111179`  
-[Rúben João Mendes Oliveira](mailto:a93625@alunos.uminho.pt) · `a93625`
+*Academic project developed for **Redes de Computadores** @ University of Minho*  
+*Project grade: **18.5/20** ⭐*
 
 </div>
 
-## Visão Geral
+---
 
-Ferramenta de análise de tráfego de rede em Python com Scapy. Captura e classifica pacotes em tempo real (ARP, ICMP, TCP, UDP) a partir de qualquer interface física ou emulada, com 11 funcionalidades opcionais implementadas.
+## 📡 About
 
-```
-══════════════════════════════════════════════════════════════
-  >>>  PACKET SNIFFER  ·  RELATÓRIO DE CAPTURA  <<<
-══════════════════════════════════════════════════════════════
-  【 duração   0:02:14
-  【 pacotes   674
-  【 bytes     210681 B  (205.74 KB)
-  【 débito    3162.9 B/s
-──────────────────────────────────────────────────────────────
-  PROTO       PKTS     %        BYTES     %   DISTRIBUIÇÃO
-──────────────────────────────────────────────────────────────
-  TCP          341  50.6%      100915  47.9%   ████████░░░░░░░░░░░░
-  UDP          215  31.9%       98202  46.6%   ██████░░░░░░░░░░░░░░
-  ICMP         118  17.5%       11564   5.5%   ███░░░░░░░░░░░░░░░░░
-```
+For Computer Networks we built a packet sniffer in Python with Scapy. It listens on a network interface, catches every frame that goes by and tells you what it is: ARP, ICMP, TCP or UDP, who sent it, where it's going and on which port.
+
+The base project asked for protocol, IP and MAC filters and two output modes (live in the console or saved to a log). We ended up going quite a bit further and added **11 optional features**, from kernel level filtering to a little web dashboard to look at the results.
 
 ---
 
-## Requisitos e Instalação
+## ⚡ What it does
+
+| # | Optional feature | How to use it |
+|---|---|---|
+| 1 | Coloured statistics at the end | stop the capture with `Ctrl+C` |
+| 2 | Average RTT from ICMP pings | automatic |
+| 3 | Protocol distribution chart | `--graph` |
+| 4 | DNS resolver with cache and top hostnames | automatic |
+| 5 | Port scan and ICMP flood detection | automatic |
+| 6 | Capture for a limited time | `--duration 60` |
+| 7 | Port numbers shown as service names | automatic |
+| 8 | Native BPF filters, applied by the kernel | `--bpf 'tcp port 443'` |
+| 9 | Interactive menu, with the capture running in its own thread | run with no arguments |
+| 10 | Hashtable index for instant filtering after the capture | `--fproto`, `--fdport`, ... |
+| 11 | HTML dashboard | open it in the browser |
+
+---
+
+## 🧩 My part
+
+I took care of Part B, the optional features, and of exporting the session reports with `--save`. In the report I wrote the architecture, the optional features, the analysis on a real network interface and the limitations, and I kept the group organised along the way.
+
+---
+
+## 🔍 The fun part
+
+The part I'm proudest of is the post capture filtering. Instead of going through every packet each time you filter, the sniffer keeps them indexed in a hashtable by protocol, address and port while it captures. Filtering afterwards is just crossing a few buckets, so it's instant even after thousands of packets.
+
+My favourite bug: the port scan detector only went off if someone hit **exactly** 15 ports. One more and it stayed quiet. A `==` that should have been `>=`.
+
+---
+
+## 🚀 How to Run
 
 ```bash
-# Clonar o repositório
-git clone https://github.com/rubCoder/RC---TP2---PL4.git
-cd RC---TP2---PL4
-
-# Instalar Scapy (obrigatório)
+# Install
 sudo pip3 install scapy --break-system-packages
+pip install matplotlib --break-system-packages    # only needed for --graph
 
-# Instalar matplotlib (opcional — só necessário para --graph)
-pip install matplotlib --break-system-packages
-```
-
-> ⚠️ A captura em interface real requer permissões de administrador (`sudo`).
-
----
-
-## Como Usar
-
-**Menu interativo** (sem argumentos):
-```bash
+# Interactive menu
 sudo python3 sniffer.py
-```
 
-**Linha de comandos:**
-```bash
-sudo python3 sniffer.py -i wlp2s0 --live -l captura.txt
+# Or straight from the command line
+sudo python3 sniffer.py -i wlp2s0 --live -l capture.txt
 sudo python3 sniffer.py -i eth0 --live --bpf 'tcp port 443' --duration 60 --graph
 sudo python3 sniffer.py -i wlp2s0 --duration 30 --fproto TCP --fdport 443
 ```
 
 ---
 
-## Parâmetros
+## 🎛️ Parameters
 
-| Parâmetro | Exemplo | Descrição |
+| Parameter | Example | What it does |
 |---|---|---|
-| `-i` | `-i eth0` | Interface de rede |
-| `-p` | `-p tcp` | Filtro por protocolo (`arp`, `icmp`, `tcp`, `udp`) |
-| `--ip` | `--ip 192.168.1.1` | Filtro por endereço IP |
-| `--mac` | `--mac aa:bb:...` | Filtro por endereço MAC |
-| `-l` | `-l captura.txt` | Modo log (ficheiro de saída) |
-| `--live` | `--live` | Output em tempo real na consola |
-| `--bpf` | `--bpf 'tcp port 443'` | Expressão BPF estilo tcpdump |
-| `--duration` | `--duration 60` | Duração máxima em segundos |
-| `--save` | `--save sessao.txt` | Exporta relatório consolidado |
-| `--graph` | `--graph` | Gera gráfico de distribuição |
-| `--fproto` / `--fsrc` / `--fdst` | `--fproto TCP` | Filtros pós-captura sobre hashtable O(1) |
-| `--fsport` / `--fdport` / `--fmin` / `--fmax` / `--fhi` / `--fhf` | `--fdport 443` | Filtros adicionais pós-captura |
+| `-i` | `-i eth0` | Interface to listen on |
+| `-p` | `-p tcp` | Protocol filter (`arp`, `icmp`, `tcp`, `udp`) |
+| `--ip` | `--ip 192.168.1.1` | Source or destination IP filter |
+| `--mac` | `--mac aa:bb:cc:dd:ee:ff` | MAC address filter |
+| `--bpf` | `--bpf 'tcp port 443'` | tcpdump style BPF expression |
+| `--live` | `--live` | Shows packets in real time |
+| `-l` | `-l capture.txt` | Saves packets to a log file |
+| `--save` | `--save session.txt` | Exports a full report at the end |
+| `--graph` | `--graph` | Protocol chart at the end |
+| `--duration` | `--duration 60` | Stops after N seconds |
+| `--fproto` `--fsrc` `--fdst` | `--fproto TCP` | Filters applied after the capture |
+| `--fsport` `--fdport` `--fmin` `--fmax` `--fhi` `--fhf` | `--fdport 443` | More filters: ports, packet size and time window |
 
 ---
 
-## 📁 Estrutura do Projeto
+## 🗂️ Project Structure
 
 ```
-RC---TP2---PL4/
-├── sniffer.py                # Sniffer principal
-├── sniffer_dashboard.html    # Dashboard web interativo (Opcional 11)
-├── RC-TP2-PL4.pdf            # Relatório do projeto
-└── README.md                 # Este ficheiro
+.
+├── sniffer.py               # capture, parsing, filters, stats and menu
+├── sniffer_dashboard.html   # web dashboard
+└── RC-TP2-PL4.pdf           # project report (in Portuguese)
 ```
 
 ---
 
-<div align="center">
+## 🛠️ Tech Stack
 
-Desenvolvido para a UC de Redes de Computadores · UMinho 2026
+`Python` · `Scapy` · `BPF` · `Threading` · `Hash Tables` · `matplotlib` · `CORE Emulator`
 
-</div>
+---
+
+## 👩‍💻 Authors
+
+**Carolina Dias** · [@carolinavdias](https://github.com/carolinavdias)  
+**Ana Patrícia Machado** · [@apatriciamachado](https://github.com/apatriciamachado)  
+**Rúben Oliveira** · [@rubCoder](https://github.com/rubCoder)
+
+<p align="center"><i>no packets were harmed in the making of this project</i></p>
